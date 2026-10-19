@@ -30,6 +30,8 @@ mod annot_ui;
 mod forms_ui;
 #[path = "convert_ui.rs"]
 mod convert_ui;
+#[path = "sign_ui.rs"]
+mod sign_ui;
 
 const THUMB_WIDTH: f32 = 110.0;
 const RAIL_WIDTH: f32 = 260.0 + 1.0 + 48.0 + 1.0;
@@ -198,6 +200,7 @@ struct Tab {
     can_undo: bool,
     can_redo: bool,
     signed: bool,
+    signature_lost: bool,
     overwrite_confirmed: bool,
     comments: Vec<AnnotInfo>,
     picked: Option<AnnotInfo>,
@@ -240,6 +243,12 @@ pub struct App {
     chats: HashMap<DocId, convert_ui::Chat>,
     ai: Option<crate::assistant::Engine>,
     ai_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    comparison: Option<sign_ui::Comparison>,
+    sign_target: Option<sign_ui::SignTarget>,
+    sig_strokes: Vec<Vec<(f32, f32)>>,
+    sig_png: Option<Vec<u8>>,
+    statuses: Vec<crate::signature::Status>,
+    show_signatures_after_open: Option<PathBuf>,
 }
 
 impl App {
@@ -386,6 +395,7 @@ impl App {
             can_undo: false,
             can_redo: false,
             signed,
+            signature_lost: false,
             overwrite_confirmed: false,
             comments,
             picked: None,
@@ -397,6 +407,7 @@ impl App {
         self.settings.save();
         crate::log(&format!("Ouvert : {}", path.display()));
         self.select_tab(self.tabs.len() - 1);
+        self.after_open(&path);
     }
 
     pub fn select_tab(&mut self, i: usize) {
@@ -447,6 +458,9 @@ impl App {
         self.sync_state();
         self.sync_comments();
         self.sync_assistant();
+        if ui.get_rail_tab() == 5 {
+            self.verify_signatures();
+        }
         ui.set_recent(ModelRc::new(VecModel::from(self.recent_rows())));
     }
 
@@ -1089,6 +1103,12 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         chats: HashMap::new(),
         ai: None,
         ai_cancel: None,
+        comparison: None,
+        sign_target: None,
+        sig_strokes: vec![],
+        sig_png: None,
+        statuses: vec![],
+        show_signatures_after_open: None,
     };
     app.apply_theme();
     APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -1148,6 +1168,21 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_ocr_run(|lang, pages, all| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all)));
     ui.on_ai_ask(|q| with_app(move |app| app.ai_ask(q.to_string())));
     ui.on_chat_page(|p| with_app(move |app| app.go_to((p.max(1) - 1) as usize)));
+    ui.on_sig_draw(|x, y, start| with_app(move |app| app.sig_draw(x, y, start)));
+    ui.on_sig_clear(|| with_app(App::sig_clear));
+    ui.on_sig_typed(|t| with_app(move |app| app.sig_typed(t.to_string())));
+    ui.on_sig_import(|| with_app(App::sig_import));
+    ui.on_sig_save(|mode, w, h| with_app(move |app| app.sig_save(mode, w, h)));
+    ui.on_sig_place(|i| with_app(move |app| app.sig_place(i.max(0) as usize)));
+    ui.on_sig_delete(|i| with_app(move |app| app.sig_delete(i.max(0) as usize)));
+    ui.on_pick_pfx(|| with_app(App::pick_pfx));
+    ui.on_digital_run(|pfx, pw, reason, location, tsa, url, image| with_app(move |app| {
+        app.digital_run(pfx.into(), pw.into(), reason.into(), location.into(), tsa, url.into(), image.max(0) as usize)
+    }));
+    ui.on_sig_trust(|i| with_app(move |app| app.sig_trust(i.max(0) as usize)));
+    ui.on_sig_signed_version(|i| with_app(move |app| app.sig_signed_version(i.max(0) as usize)));
+    ui.on_diff_clicked(|i| with_app(move |app| app.diff_clicked(i.max(0) as usize)));
+    with_app(App::sync_signatures);
     // Index des polices installées (« Modifier le texte ») préparé à l'avance.
     std::thread::spawn(|| {
         crate::fonts::index();

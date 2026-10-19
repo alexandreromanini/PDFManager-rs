@@ -22,11 +22,14 @@ pub struct Settings {
     pub sidebar: bool,
     /// Auteur des commentaires (vide : nom de session).
     pub author: String,
+    /// Dernier certificat de signature utilisé, et serveur d'horodatage.
+    pub pfx: String,
+    pub tsa: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { recent: vec![], theme: "system".into(), sidebar: true, author: String::new() }
+        Settings { recent: vec![], theme: "system".into(), sidebar: true, author: String::new(), pfx: String::new(), tsa: String::new() }
     }
 }
 

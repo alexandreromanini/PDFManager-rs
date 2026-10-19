@@ -20,6 +20,8 @@ struct Edited {
     bookmarks: Vec<crate::pdf::Bookmark>,
     comments: Vec<crate::annot::AnnotInfo>,
     fields: Vec<crate::forms::FieldInfo>,
+    /// Signé et encore enregistré « en ajout » (signatures préservées).
+    signed: bool,
     modified: bool,
     can_undo: bool,
     can_redo: bool,
@@ -31,6 +33,7 @@ fn state_of(pdf: &Pdf) -> Edited {
         bookmarks: pdf.bookmarks(),
         comments: crate::annot::list(pdf),
         fields: crate::forms::fields(pdf),
+        signed: pdf.signed,
         modified: pdf.modified(),
         can_undo: pdf.undo_label().is_some(),
         can_redo: pdf.redo_label().is_some(),
@@ -144,6 +147,9 @@ impl App {
                 }
             }
             "editor-commit" => self.editor_commit(),
+            "sign-create" => self.sig_create(),
+            "compare" => self.compare_start(),
+            "verify" => self.verify_signatures(),
             "redact-apply" => self.redact_apply(),
             "redact-text" => {
                 if self.current_tab().is_some() {
@@ -255,6 +261,8 @@ impl App {
         tab.bookmarks = state.bookmarks;
         App::comments_changed(tab, state.comments);
         tab.fields = state.fields;
+        // Signé à l'ouverture mais plus « en ajout » : l'enregistrement réécrira tout.
+        tab.signature_lost = tab.signed && !state.signed;
         tab.modified = state.modified;
         tab.can_undo = state.can_undo;
         tab.can_redo = state.can_redo;
@@ -556,8 +564,12 @@ impl App {
         if !tab.overwrite_confirmed {
             let mut text = format!("Enregistrer dans « {} » ?\nLe fichier d'origine sera remplacé \
                                     (Enregistrer sous… pour garder l'original).", tab.name);
-            if tab.signed {
-                text.push_str("\n\nCe document est signé : la signature ne sera plus valide.");
+            if tab.signature_lost {
+                text.push_str("\n\nCe document est signé : la protection, le caviardage ou le nettoyage réécrivent tout le \
+                               fichier, ses signatures ne seront plus valides.");
+            } else if tab.signed {
+                text.push_str("\n\nCe document est signé : les modifications s'ajoutent à la suite, les signatures restent \
+                               valides et indiqueront que le document a été complété.");
             }
             if !ask("Enregistrer", &text) {
                 return;

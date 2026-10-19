@@ -86,6 +86,7 @@ impl App {
             "image" => "Tracez le cadre de l'image (ou cliquez).",
             "edit-text" => "Cliquez un paragraphe pour le corriger sur place ; cliquez à côté pour valider (Échap pour annuler).",
             "redact" => "Tracez les zones à caviarder ; rien n'est retiré avant « Appliquer les caviardages ».",
+            "digital-sign" => "Tracez le cadre de la signature (ou cliquez), ou cliquez un champ de signature vide.",
             t if t.starts_with("field-") => "Tracez le cadre du champ (ou cliquez). Cliquer un champ existant propose de le supprimer.",
             _ => "",
         };
@@ -264,6 +265,10 @@ impl App {
                         if !small(a, b) {
                             self.redact_zone(page, r);
                         }
+                    }
+                    "digital-sign" => {
+                        let r = if small(a, b) { Rect::new(a.0, a.1, a.0 + 200.0, a.1 + 60.0) } else { r };
+                        self.digital_start(super::sign_ui::SignTarget::New(page, r));
                     }
                     "rect" | "ellipse" | "line" | "arrow" => {
                         if !small(a, b) {

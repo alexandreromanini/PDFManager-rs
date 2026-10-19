@@ -20,7 +20,7 @@ usages.
 | 4 | Formulaires, protection, impression, mises à jour | ✅ 0.4.0 |
 | 5 | Modifier le texte existant, caviardage | ✅ 0.5.0 |
 | 6 | OCR, assistant IA, conversions | ✅ 0.6.0 |
-| 7 | Signatures, comparaison | à venir |
+| 7 | Signatures, comparaison | ✅ 0.7.0 |
 
 ## Fonctions (phase 1)
 
@@ -109,6 +109,23 @@ usages.
   citées cliquables. Qwen3 4B Instruct par llama.cpp, sur le processeur ; le modèle (2,5 Go)
   est partagé avec la version Python, téléchargé par l'installeur (case à cocher) ou depuis
   l'application, taille et empreinte vérifiées.
+
+## Fonctions (phase 7)
+
+- Signature manuscrite : dessinée à la souris, tapée (police manuscrite) ou importée (scan,
+  photo, fond rendu transparent), enregistrée pour être réutilisée, placée sur la page.
+- Signature numérique PAdES (ETSI.CAdES.detached) avec un certificat .pfx / .p12 (RSA,
+  ECDSA P-256 / P-384 ; chiffrements 3DES, RC2 et AES-256 des fichiers), apparence visible
+  (texte, image de signature), horodatage RFC 3161. Ajoutée au fichier sans toucher aux
+  signatures précédentes. Écrit avec les bibliothèques RustCrypto ; contre-vérifié avec
+  pyHanko (signatures, horodatage).
+- Vérification (rail de droite) : intégrité, signataire, chaîne jusqu'aux autorités du
+  système ou aux certificats approuvés, horodatage, mises à jour ajoutées depuis ; « Faire
+  confiance au certificat », « Voir la version signée ».
+- Un document signé reste modifiable (commentaires, formulaires) : les modifications sont
+  enregistrées en ajout, les signatures restent valides.
+- Comparer deux PDF, mot à mot sur tout le document : différences listées dans le rail de
+  droite et surlignées dans les deux documents.
 
 ## Installation
 

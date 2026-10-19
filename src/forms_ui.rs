@@ -31,6 +31,13 @@ impl App {
         let tool = self.tool.clone();
         let Some(tab) = self.tab() else { return false };
         let hit = Self::field_at(tab, page, pt);
+        if tool == "digital-sign" {
+            if let Some(f) = hit.filter(|f| f.kind == "signature") {
+                self.fill(f); // champ vide : signer dedans ; signé : vérifier
+                return true;
+            }
+            return false;
+        }
         if field_tool(&tool).is_some() {
             if let Some(f) = hit {
                 let text = format!("Supprimer le champ « {} » ?\n(Ctrl+Z pour annuler)", f.name);
@@ -80,7 +87,14 @@ impl App {
                 let value = if f.checked() { "Off" } else { "Yes" };
                 self.edit("", move |pdf| forms::set_value(pdf, &f, value).map(|_| None));
             }
-            "signature" => self.toast("Signer un document arrive en phase 7."),
+            "signature" if f.signed => {
+                if !self.settings.sidebar {
+                    self.toggle_sidebar();
+                }
+                self.ui().set_rail_tab(5);
+                self.verify_signatures();
+            }
+            "signature" => self.digital_start(super::sign_ui::SignTarget::Field(f.name)),
             _ => {}
         }
     }

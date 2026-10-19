@@ -6,6 +6,8 @@ description = "Lecteur et éditeur PDF personnel (réécriture en Rust de PDFMan
 license = "AGPL-3.0-or-later"
 
 [dependencies]
+flate2 = "1"
+crc32fast = "1"
 arboard = "3.7.0"
 chrono = "0.4.45"
 cms = "0.2"

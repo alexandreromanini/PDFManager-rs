@@ -181,11 +181,10 @@ pub fn cited_pages(text: &str) -> Vec<usize> {
     for group in text.split('[').skip(1).filter_map(|g| g.split(']').next()) {
         for part in group.split("p.").skip(1) {
             let digits: String = part.trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
-            if let Ok(n) = digits.parse::<usize>() {
-                if !out.contains(&n) {
+            if let Ok(n) = digits.parse::<usize>()
+                && !out.contains(&n) {
                     out.push(n);
                 }
-            }
         }
     }
     out

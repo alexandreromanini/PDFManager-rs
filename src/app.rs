@@ -562,11 +562,10 @@ impl App {
         let ui = self.ui();
         let Some(tab) = self.tab() else { return };
         tab.top = top.max(0.0);
-        if tab.mode != Mode::Single {
-            if let Some(p) = layout::current_page(&tab.layout, tab.top, vh) {
+        if tab.mode != Mode::Single
+            && let Some(p) = layout::current_page(&tab.layout, tab.top, vh) {
                 tab.current = p;
             }
-        }
         ui.set_page_text((tab.current + 1).to_string().into());
         ui.set_current_page(tab.current as i32);
         self.update_view();

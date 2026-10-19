@@ -49,11 +49,10 @@ pub fn index() -> &'static HashMap<String, PathBuf> {
             let Ok(data) = std::fs::read(&path) else { continue };
             let Ok(face) = ttf_parser::Face::parse(&data, 0) else { continue };
             for name in face.names() {
-                if matches!(name.name_id, ttf_parser::name_id::FULL_NAME | ttf_parser::name_id::POST_SCRIPT_NAME) {
-                    if let Some(n) = name.to_string() {
+                if matches!(name.name_id, ttf_parser::name_id::FULL_NAME | ttf_parser::name_id::POST_SCRIPT_NAME)
+                    && let Some(n) = name.to_string() {
                         found.entry(key(&n)).or_insert_with(|| path.clone());
                     }
-                }
             }
         }
         found

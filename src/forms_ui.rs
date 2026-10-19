@@ -306,11 +306,10 @@ impl App {
 
     /// Fin de l'application ; lance d'abord l'installeur d'une mise à jour en attente.
     pub(super) fn exit_now(&mut self) {
-        if let Some(installer) = self.pending_installer.take() {
-            if let Err(e) = updates::install(&installer) {
+        if let Some(installer) = self.pending_installer.take()
+            && let Err(e) = updates::install(&installer) {
                 return self.error(&e);
             }
-        }
         let _ = slint::quit_event_loop();
     }
 

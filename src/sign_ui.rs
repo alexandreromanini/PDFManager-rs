@@ -148,12 +148,11 @@ impl App {
     }
 
     pub fn sig_delete(&mut self, i: usize) {
-        if let Some(p) = saved_signatures().get(i) {
-            if super::edit_ui::ask("Signatures", "Supprimer cette signature enregistrée ?") {
+        if let Some(p) = saved_signatures().get(i)
+            && super::edit_ui::ask("Signatures", "Supprimer cette signature enregistrée ?") {
                 let _ = std::fs::remove_file(p);
                 self.sync_signatures();
             }
-        }
     }
 
     // ----- signature numérique -------------------------------------------------------------

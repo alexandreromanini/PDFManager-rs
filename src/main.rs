@@ -5,6 +5,7 @@
 
 mod annot;
 mod app;
+mod assistant;
 #[cfg(feature = "capture")]
 mod capture;
 mod convert;

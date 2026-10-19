@@ -8,21 +8,33 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 arboard = "3.7.0"
 chrono = "0.4.45"
+cms = "0.2"
+der = "0.7"
 dirs = "7.0.0"
+ecdsa = "0.16"
 interprocess = "2.4.6"
 jpeg-encoder = "0.7.1"
 llama-cpp-2 = { version = "0.1.160", default-features = false }
 mupdf = "0.8"
 open = "5.4.4"
 oxifont-subset = "0.2"
+p12-keystore = "0.1"
+p256 = "0.13"
+p384 = "0.13"
 png = "0.18.1"
 rfd = "0.17.2"
+rsa = "0.9"
+rustls-native-certs = "0.8"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha1 = "0.10"
 sha2 = "0.10"
+similar = "2"
 slint = { version = "1.18", features = ["unstable-winit-030"] }
 ttf-parser = "0.25.1"
 ureq = "3"
+x509-cert = "0.2"
+x509-tsp = "0.1"
 
 [features]
 # Développement : captures d'écran hors écran (pdfmanager --capture …), absent de l'exe livré.

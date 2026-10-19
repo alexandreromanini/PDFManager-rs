@@ -471,7 +471,7 @@ pub fn apply_redactions(pdf: &mut Pdf) -> Result<(usize, usize), String> {
         Ok(())
     })?;
     if zones > 0 {
-        pdf.signed = false; // l'enregistrement réécrit tout le fichier
+        pdf.rewrite_all(); // l'enregistrement réécrit tout le fichier
     }
     Ok((zones, removed))
 }
@@ -527,7 +527,7 @@ pub fn clean(pdf: &mut Pdf, metadata: bool, javascript: bool, attachments: bool,
         }
         Ok(())
     })?;
-    pdf.signed = false;
+    pdf.rewrite_all();
     Ok(done)
 }
 

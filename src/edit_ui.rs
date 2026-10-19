@@ -562,6 +562,11 @@ impl App {
         let title = if copy { "Enregistrer une copie" } else { "Enregistrer sous" };
         let Some(target) = save_dialog(title, &suggested) else { return };
         let id = tab.id;
+        // Écraser un fichier ouvert dans un autre onglet : deux onglets sur un même fichier,
+        // l'un pouvant ensuite défaire ce que l'autre a enregistré.
+        if let Some(other) = self.tabs.iter().find(|t| t.id != id && t.path == target) {
+            return self.error(&format!("« {} » est ouvert dans un autre onglet : fermez-le d'abord.", other.name));
+        }
         self.write(id, target, copy);
     }
 

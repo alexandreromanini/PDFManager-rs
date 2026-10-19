@@ -6,12 +6,24 @@ description = "Lecteur et éditeur PDF personnel (réécriture en Rust de PDFMan
 license = "AGPL-3.0-or-later"
 
 [dependencies]
+arboard = "3.7.0"
+chrono = "0.4.45"
+dirs = "7.0.0"
+interprocess = "2.4.6"
 mupdf = "0.8"
+open = "5.4.4"
 rfd = "0.17.2"
-slint = "1.18"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+slint = { version = "1.18", features = ["unstable-winit-030"] }
+
+[features]
+# Développement : captures d'écran hors écran (pdfmanager --capture …), absent de l'exe livré.
+capture = []
 
 [build-dependencies]
 slint-build = "1.18"
+winresource = "0.1.34"
 
 [profile.release]
 strip = true       # symboles de débogage retirés : exe plus léger

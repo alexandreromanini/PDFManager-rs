@@ -1,36 +1,636 @@
-// Phase 0 (essai) : ouvrir un PDF et faire défiler ses pages rendues par MuPDF.
-import { Button, ScrollView } from "std-widgets.slint";
+// Fenêtre de PDFManager (phase 1 : lecteur). Même organisation que la version Python :
+// barre d'application (accueil, onglets, recherche, thème, menu), accueil, barre du
+// document, vue des pages, rail de droite (vignettes, signets), notifications.
+import { LineEdit, ComboBox, ListView, ScrollView, Button, Palette } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+export { Theme }
+
+export struct TabData { name: string, path: string }
+export struct RecentData { name: string, folder: string, when: string, path: string }
+export struct Area { x: length, y: length, w: length, h: length }
+export struct PageData {
+    index: int, x: length, y: length, w: length, h: length, image: image,
+    hits: [Area], current: [Area], selection: [Area],
+}
+export struct ThumbData { index: int, image: image, w: length, h: length }
+export struct BookmarkData { title: string, level: int, page: int }
+
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> enabled: true;
+    in property <bool> checked: false;
+    in property <length> icon-size: 18px;
+    in property <string> label;
+    callback clicked();
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: !enabled ? transparent : checked ? Theme.accent-soft
+        : ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: label;
+    Image {
+        source: root.icon;
+        width: root.icon-size;
+        height: root.icon-size;
+        colorize: !root.enabled ? Theme.text3 : root.checked ? Theme.accent : Theme.icon;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    callback clicked();
+    height: 36px;
+    border-radius: 6px;
+    background: ta.has-hover ? Theme.accent-hover : Theme.accent;
+    accessible-role: button;
+    accessible-label: text;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 8px;
+        alignment: center;
+        Image { source: root.icon; colorize: Theme.accent-text; width: 16px; y: (parent.height - self.height) / 2; }
+        Text { text: root.text; color: Theme.accent-text; font-weight: 600; vertical-alignment: center; }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component DocTab inherits Rectangle {
+    in property <string> name;
+    in property <string> tip;
+    in property <bool> selected;
+    callback activate();
+    callback close();
+    height: 36px;
+    min-width: 120px;
+    max-width: 260px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: selected ? Theme.control-border : transparent;
+    background: selected ? Theme.layer : ta.has-hover ? Theme.hover : transparent;
+    accessible-role: tab;
+    accessible-label: tip;
+    ta := TouchArea { clicked => { root.activate(); } }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 4px;
+        spacing: 8px;
+        Image { source: Icons.file; colorize: Theme.accent; width: 16px; y: (parent.height - self.height) / 2; }
+        Text {
+            text: root.name;
+            color: root.selected ? Theme.text : Theme.text2;
+            font-weight: root.selected ? 600 : 400;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        IconButton { icon: Icons.close; icon-size: 14px; width: 24px; height: 24px; y: 6px; label: "Fermer"; clicked => { root.close(); } }
+    }
+}
+
+component Separator inherits Rectangle {
+    width: 1px;
+    height: 22px;
+    background: Theme.border;
+}
 
 export component AppWindow inherits Window {
-    title: "PDFManager";
-    preferred-width: 1100px;
-    preferred-height: 800px;
-    in property <[image]> pages;
-    in property <string> status: "Ouvrez un PDF pour commencer.";
-    callback open();
-    callback zoom-in();
-    callback zoom-out();
+    in property <string> doc-title;
+    title: root.doc-title == "" ? "PDFManager" : root.doc-title + " - PDFManager";
+    icon: Icons.logo;
+    preferred-width: 1280px;
+    preferred-height: 850px;
+    min-width: 720px;
+    min-height: 480px;
+    background: Theme.window;
+    default-font-family: "Segoe UI Variable Text";
 
-    VerticalLayout {
-        HorizontalLayout {
-            padding: 8px;
-            spacing: 6px;
-            Button { text: "Ouvrir…"; clicked => { root.open(); } }
-            Button { text: "−"; clicked => { root.zoom-out(); } }
-            Button { text: "+"; clicked => { root.zoom-in(); } }
-            Text { text: root.status; vertical-alignment: center; }
+    in property <bool> dark;
+    in property <[TabData]> tabs;
+    in property <int> current-tab: -1;
+    in property <bool> on-home: true;
+    in property <[RecentData]> recent;
+    in property <[PageData]> pages;
+    in property <length> content-width;
+    in property <length> content-height;
+    in-out property <length> scroll-y;
+    in property <string> page-text: "1";
+    in property <int> page-count;
+    in property <string> zoom-text: "100 %";
+    in property <int> mode-index;
+    in property <[ThumbData]> thumbs;
+    in property <[BookmarkData]> bookmarks;
+    in property <int> current-page;
+    in property <string> search-info;
+    in property <bool> sidebar-visible: true;
+    in property <int> rail-tab;
+    in property <string> toast-text;
+    in property <bool> toast-visible;
+    in property <string> password-file;
+    in property <string> password-prompt;
+    in property <string> version;
+
+    callback open();
+    callback open-recent(string);
+    callback select-tab(int);
+    callback close-tab(int);
+    callback go-home();
+    callback toggle-theme();
+    callback set-theme(string);
+    callback search(string);
+    callback search-step(int);
+    callback page-entered(string);
+    callback step-page(int);
+    callback zoom-step(int);
+    callback zoom-entered(string);
+    callback fit(int);
+    callback rotate(int);
+    callback mode-selected(int);
+    callback scrolled(length, length);
+    callback viewport-resized(length, length);
+    callback wheel-zoom(length);
+    callback page-press(int, length, length);
+    callback page-drag(int, length, length);
+    callback page-release(int, length, length);
+    callback copy();
+    callback thumb-clicked(int);
+    callback bookmark-clicked(int);
+    callback set-rail-tab(int);
+    callback toggle-sidebar();
+    callback toggle-fullscreen();
+    callback quit();
+    callback password-entered(string);
+    callback password-cancelled();
+
+    // Thème : nos couleurs, et celles des champs standard de Slint (palette).
+    init => {
+        Theme.dark = root.dark;
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    changed dark => {
+        Theme.dark = root.dark;
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    public function ask-password() {
+        password-popup.show();  // contenu recréé à chaque ouverture : champ vide
+    }
+    public function focus-search() { search-field.focus(); search-field.select-all(); }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if (e.modifiers.control) {
+                if (e.text == "o" || e.text == "O") { root.open(); return accept; }
+                if (e.text == "w" || e.text == "W") { root.close-tab(root.current-tab); return accept; }
+                if (e.text == "f" || e.text == "F") { root.focus-search(); return accept; }
+                if (e.text == "c" || e.text == "C") { root.copy(); return accept; }
+                if (e.text == "+" || e.text == "=") { root.zoom-step(1); return accept; }
+                if (e.text == "-") { root.zoom-step(-1); return accept; }
+                if (e.text == "0") { root.fit(2); return accept; }
+                if (e.text == "2") { root.fit(1); return accept; }
+                if (e.text == Key.Tab) { root.select-tab(Math.mod(root.current-tab + 1, max(1, root.tabs.length))); return accept; }
+                return reject;
+            }
+            if (e.text == Key.F3) { root.search-step(e.modifiers.shift ? -1 : 1); return accept; }
+            if (e.text == Key.F4) { root.toggle-sidebar(); return accept; }
+            if (e.text == Key.F11) { root.toggle-fullscreen(); return accept; }
+            if (e.text == Key.PageDown) { root.step-page(1); return accept; }
+            if (e.text == Key.PageUp) { root.step-page(-1); return accept; }
+            if (e.text == Key.Home) { root.page-entered("1"); return accept; }
+            if (e.text == Key.End) { root.page-entered(root.page-count); return accept; }
+            return reject;
         }
-        Rectangle {
-            background: #EBEBEE;
-            ScrollView {
-                VerticalLayout {
-                    alignment: start;
-                    padding: 12px;
-                    spacing: 12px;
-                    for page in root.pages: HorizontalLayout {
-                        alignment: center;
-                        Image { source: page; }
+
+        VerticalLayout {
+            // ----- barre d'application -----------------------------------------------------
+            Rectangle {
+                height: 52px;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    spacing: 6px;
+                    Image { source: Icons.logo; width: 24px; y: (parent.height - self.height) / 2; }
+                    Rectangle { width: 4px; }
+                    home := Rectangle {
+                        width: home-row.preferred-width + 24px;
+                        height: 36px;
+                        y: 8px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: root.on-home ? Theme.control-border : transparent;
+                        background: root.on-home ? Theme.layer : home-ta.has-hover ? Theme.hover : transparent;
+                        accessible-role: button;
+                        accessible-label: "Accueil";
+                        home-row := HorizontalLayout {
+                            x: 12px;
+                            spacing: 6px;
+                            Image { source: Icons.house; colorize: Theme.accent; width: 16px; y: (parent.height - self.height) / 2; }
+                            Text { text: "Accueil"; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        home-ta := TouchArea { mouse-cursor: pointer; clicked => { root.go-home(); } }
                     }
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        alignment: start;
+                        for t[i] in root.tabs: DocTab {
+                            name: t.name;
+                            tip: t.path;
+                            selected: !root.on-home && i == root.current-tab;
+                            activate => { root.select-tab(i); }
+                            close => { root.close-tab(i); }
+                        }
+                    }
+                    IconButton { icon: Icons.plus; y: 10px; label: "Ouvrir un PDF (Ctrl+O)"; clicked => { root.open(); } }
+                    search-field := LineEdit {
+                        width: 300px;
+                        height: 34px;
+                        y: 9px;
+                        placeholder-text: "Rechercher dans le document (Ctrl+F)";
+                        enabled: root.tabs.length > 0;
+                        accepted(text) => { root.search(text); }
+                    }
+                    Text { text: root.search-info; color: Theme.text2; vertical-alignment: center; min-width: 0px; }
+                    IconButton { icon: Icons.chevron-up; y: 10px; enabled: root.search-info != ""; label: "Résultat précédent (Maj+F3)"; clicked => { root.search-step(-1); } }
+                    IconButton { icon: Icons.chevron-down; y: 10px; enabled: root.search-info != ""; label: "Résultat suivant (F3)"; clicked => { root.search-step(1); } }
+                    IconButton { icon: Theme.dark ? Icons.sun : Icons.moon; y: 10px; label: Theme.dark ? "Thème clair" : "Thème sombre"; clicked => { root.toggle-theme(); } }
+                    IconButton { icon: Icons.ellipsis; y: 10px; label: "Menu"; clicked => { menu.show(); } }
+                }
+            }
+
+            // ----- contenu ------------------------------------------------------------------
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.layer;
+                border-top-left-radius: 8px;
+                if root.on-home || root.tabs.length == 0: home-page := Flickable {
+                    content-height: home-content.preferred-height;
+                    home-content := VerticalLayout {
+                        padding: 40px;
+                        padding-top: 32px;
+                        spacing: 14px;
+                        alignment: start;
+                        Rectangle {
+                            height: 130px;
+                            border-radius: 12px;
+                            border-width: 2px;
+                            border-color: Theme.border-strong;
+                            background: Theme.layer-alt;
+                            HorizontalLayout {
+                                padding: 32px;
+                                spacing: 24px;
+                                Rectangle {
+                                    width: 64px;
+                                    height: 64px;
+                                    border-radius: 12px;
+                                    background: Theme.accent-soft;
+                                    Image { source: Icons.file-up; colorize: Theme.accent; width: 32px; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 4px;
+                                    horizontal-stretch: 1;
+                                    Text { text: "Ouvrir un PDF"; font-size: 21px; font-weight: 600; color: Theme.text; }
+                                    Text { text: "Glissez-déposez un ou plusieurs fichiers ici, ou choisissez-les sur votre ordinateur."; color: Theme.text2; wrap: word-wrap; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    PrimaryButton { text: "Choisir des fichiers"; icon: Icons.folder-open; clicked => { root.open(); } }
+                                }
+                            }
+                        }
+                        Rectangle { height: 10px; }
+                        Text { text: "Récents"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                        if root.recent.length == 0: Text { text: "Aucun fichier récent."; color: Theme.text2; }
+                        for r in root.recent: Rectangle {
+                            height: 52px;
+                            border-radius: 8px;
+                            background: rta.has-hover ? Theme.hover : transparent;
+                            accessible-role: button;
+                            accessible-label: r.path;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 14px;
+                                Rectangle {
+                                    width: 34px;
+                                    height: 34px;
+                                    y: 9px;
+                                    border-radius: 8px;
+                                    background: Theme.accent-soft;
+                                    Image { source: Icons.file; colorize: Theme.accent; width: 18px; }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    Text { text: r.name; font-weight: 600; color: Theme.text; overflow: elide; }
+                                    Text { text: r.folder; color: Theme.text2; overflow: elide; }
+                                }
+                                Text { text: r.when; color: Theme.text2; vertical-alignment: center; }
+                            }
+                            rta := TouchArea { mouse-cursor: pointer; clicked => { root.open-recent(r.path); } }
+                        }
+                    }
+                }
+                if !root.on-home && root.tabs.length > 0: VerticalLayout {
+                    // barre du document
+                    Rectangle {
+                        height: 46px;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 2px;
+                            alignment: start;
+                            IconButton { icon: Icons.chevron-left; y: 7px; label: "Page précédente"; clicked => { root.step-page(-1); } }
+                            LineEdit {
+                                width: 56px;
+                                height: 32px;
+                                y: 7px;
+                                horizontal-alignment: center;
+                                text: root.page-text;
+                                accepted(text) => { root.page-entered(text); }
+                            }
+                            Text { text: " / " + root.page-count; color: Theme.text2; vertical-alignment: center; }
+                            IconButton { icon: Icons.chevron-right; y: 7px; label: "Page suivante"; clicked => { root.step-page(1); } }
+                            Rectangle { width: 12px; Separator { } }
+                            IconButton { icon: Icons.zoom-out; y: 7px; label: "Zoom arrière (Ctrl+-)"; clicked => { root.zoom-step(-1); } }
+                            LineEdit {
+                                width: 80px;
+                                height: 32px;
+                                y: 7px;
+                                horizontal-alignment: center;
+                                text: root.zoom-text;
+                                accepted(text) => { root.zoom-entered(text); }
+                            }
+                            IconButton { icon: Icons.zoom-in; y: 7px; label: "Zoom avant (Ctrl++)"; clicked => { root.zoom-step(1); } }
+                            IconButton { icon: Icons.fit-width; y: 7px; label: "Ajuster à la largeur (Ctrl+2)"; clicked => { root.fit(1); } }
+                            IconButton { icon: Icons.fit-page; y: 7px; label: "Ajuster à la page (Ctrl+0)"; clicked => { root.fit(2); } }
+                            Rectangle { width: 12px; Separator { } }
+                            IconButton { icon: Icons.rotate-left; y: 7px; label: "Pivoter l'affichage à gauche"; clicked => { root.rotate(-90); } }
+                            IconButton { icon: Icons.rotate-right; y: 7px; label: "Pivoter l'affichage à droite"; clicked => { root.rotate(90); } }
+                            Rectangle { width: 12px; Separator { } }
+                            ComboBox {
+                                width: 150px;
+                                height: 32px;
+                                y: 7px;
+                                model: ["Continu", "Page unique", "Double page"];
+                                current-index: root.mode-index;
+                                selected => { root.mode-selected(self.current-index); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+                        // vue des pages
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            background: Theme.canvas;
+                            init => { root.viewport-resized(self.width, self.height); }
+                            changed width => { root.viewport-resized(self.width, self.height); }
+                            changed height => { root.viewport-resized(self.width, self.height); }
+                            view := ScrollView {
+                                content-width: max(root.content-width, self.visible-width);
+                                content-height: root.content-height;
+                                content-y <=> root.scroll-y;
+                                changed content-y => { root.scrolled(-self.content-y, self.visible-height); }
+                                changed visible-height => { root.scrolled(-self.content-y, self.visible-height); }
+                                wheel := TouchArea {
+                                    width: view.content-width;
+                                    height: view.content-height;
+                                    scroll-event(e) => {
+                                        if (e.modifiers.control) { root.wheel-zoom(e.delta-y); return accept; }
+                                        return reject;
+                                    }
+                                }
+                                for p in root.pages: Rectangle {
+                                    x: p.x + max(0px, (view.visible-width - root.content-width) / 2);
+                                    y: p.y;
+                                    width: p.w;
+                                    height: p.h;
+                                    background: white;
+                                    drop-shadow-blur: 4px;
+                                    drop-shadow-color: #00000030;
+                                    Image { source: p.image; width: parent.width; height: parent.height; image-fit: fill; }
+                                    for b in p.hits: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.hit; }
+                                    for b in p.current: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.current-hit; }
+                                    for b in p.selection: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.selection; }
+                                    pta := TouchArea {
+                                        mouse-cursor: text;
+                                        pointer-event(e) => {
+                                            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                                                keys.focus();
+                                                root.page-press(p.index, self.mouse-x, self.mouse-y);
+                                            }
+                                            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) {
+                                                root.page-release(p.index, self.mouse-x, self.mouse-y);
+                                            }
+                                        }
+                                        moved => { if (self.pressed) { root.page-drag(p.index, self.mouse-x, self.mouse-y); } }
+                                        scroll-event(e) => {
+                                            if (e.modifiers.control) { root.wheel-zoom(e.delta-y); return accept; }
+                                            return reject;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // rail de droite
+                        if root.sidebar-visible: Rectangle {
+                            width: 260px;
+                            border-width: 0px;
+                            HorizontalLayout {
+                                Rectangle { width: 1px; background: Theme.border; }
+                                if root.rail-tab == 0: ListView {
+                                    horizontal-stretch: 1;
+                                    for t in root.thumbs: Rectangle {
+                                        height: t.h + 30px;
+                                        VerticalLayout {
+                                            padding-top: 6px;
+                                            spacing: 4px;
+                                            alignment: start;
+                                            Rectangle {
+                                                width: t.w + 6px;
+                                                height: t.h + 6px;
+                                                x: (parent.width - self.width) / 2;
+                                                border-radius: 4px;
+                                                border-width: 2px;
+                                                border-color: t.index == root.current-page ? Theme.accent : transparent;
+                                                Rectangle {
+                                                    width: t.w;
+                                                    height: t.h;
+                                                    background: white;
+                                                    border-width: 1px;
+                                                    border-color: #00000030;
+                                                    Image { source: t.image; width: parent.width; height: parent.height; }
+                                                }
+                                            }
+                                            Text { text: t.index + 1; horizontal-alignment: center; color: Theme.text2; }
+                                        }
+                                        TouchArea { mouse-cursor: pointer; clicked => { root.thumb-clicked(t.index); } }
+                                    }
+                                }
+                                if root.rail-tab == 1 && root.bookmarks.length == 0: Text {
+                                    horizontal-stretch: 1;
+                                    text: "Aucun signet";
+                                    color: Theme.text2;
+                                    vertical-alignment: top;
+                                    horizontal-alignment: center;
+                                }
+                                if root.rail-tab == 1 && root.bookmarks.length > 0: ListView {
+                                    horizontal-stretch: 1;
+                                    for b in root.bookmarks: Rectangle {
+                                        height: 30px;
+                                        background: bta.has-hover ? Theme.hover : transparent;
+                                        Text {
+                                            x: 12px + b.level * 16px;
+                                            width: parent.width - self.x - 8px;
+                                            text: b.title;
+                                            color: b.page < 0 ? Theme.text2 : Theme.text;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                        bta := TouchArea { mouse-cursor: pointer; clicked => { root.bookmark-clicked(b.page); } }
+                                    }
+                                }
+                                Rectangle { width: 1px; background: Theme.border; }
+                                VerticalLayout {
+                                    width: 48px;
+                                    padding-top: 6px;
+                                    spacing: 6px;
+                                    alignment: start;
+                                    IconButton { x: 8px; icon: Icons.pages; checked: root.rail-tab == 0; label: "Pages"; clicked => { root.set-rail-tab(0); } }
+                                    IconButton { x: 8px; icon: Icons.bookmark; checked: root.rail-tab == 1; label: "Signets"; clicked => { root.set-rail-tab(1); } }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // notification
+                if root.toast-visible: Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: parent.height - self.height - 24px;
+                    width: min(560px, toast-label.preferred-width + 36px);
+                    height: toast-label.preferred-height + 20px;
+                    border-radius: 8px;
+                    background: Theme.toast;
+                    toast-label := Text {
+                        width: parent.width - 36px;
+                        text: root.toast-text;
+                        color: Theme.toast-text;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // ----- menu ⋯ -----------------------------------------------------------------------------
+    menu := PopupWindow {
+        x: root.width - 260px;
+        y: 48px;
+        width: 248px;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000040;
+            VerticalLayout {
+                padding: 4px;
+                for item[i] in [
+                    { label: "Ouvrir…  (Ctrl+O)", action: "open" },
+                    { label: "Fermer l'onglet  (Ctrl+W)", action: "close" },
+                    { label: "Accueil et fichiers récents", action: "home" },
+                    { label: "Panneau latéral  (F4)", action: "sidebar" },
+                    { label: "Plein écran  (F11)", action: "fullscreen" },
+                    { label: "Thème : système", action: "theme-system" },
+                    { label: "Thème : clair", action: "theme-light" },
+                    { label: "Thème : sombre", action: "theme-dark" },
+                    { label: "À propos", action: "about" },
+                    { label: "Quitter", action: "quit" },
+                ]: Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: mta.has-hover ? Theme.hover : transparent;
+                    Text { x: 10px; text: item.label; color: Theme.text; vertical-alignment: center; }
+                    mta := TouchArea {
+                        clicked => {
+                            if (item.action == "open") { root.open(); }
+                            if (item.action == "close") { root.close-tab(root.current-tab); }
+                            if (item.action == "home") { root.go-home(); }
+                            if (item.action == "sidebar") { root.toggle-sidebar(); }
+                            if (item.action == "fullscreen") { root.toggle-fullscreen(); }
+                            if (item.action == "theme-system") { root.set-theme("system"); }
+                            if (item.action == "theme-light") { root.set-theme("light"); }
+                            if (item.action == "theme-dark") { root.set-theme("dark"); }
+                            if (item.action == "about") { about.show(); }
+                            if (item.action == "quit") { root.quit(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    about := PopupWindow {
+        x: (root.width - 360px) / 2;
+        y: (root.height - 170px) / 2;
+        width: 360px;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: "PDFManager " + root.version; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Réécriture en Rust. MuPDF (AGPL), interface Slint, icônes Lucide (ISC). Usage personnel."; color: Theme.text2; wrap: word-wrap; }
+            }
+        }
+    }
+
+    password-popup := PopupWindow {
+        x: (root.width - 380px) / 2;
+        y: (root.height - 190px) / 2;
+        width: 380px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text { text: "Mot de passe"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: root.password-prompt; color: Theme.text2; wrap: word-wrap; }
+                password-field := LineEdit {
+                    input-type: password;
+                    init => { self.focus(); }
+                    accepted(text) => { password-popup.close(); root.password-entered(text); }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { password-popup.close(); root.password-cancelled(); } }
+                    Button { text: "Ouvrir"; primary: true; clicked => { password-popup.close(); root.password-entered(password-field.text); } }
                 }
             }
         }

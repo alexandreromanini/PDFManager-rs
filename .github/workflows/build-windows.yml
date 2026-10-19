@@ -29,8 +29,16 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "Autotest en echec (code $($p.ExitCode))" }
           "Taille de l'exe : {0:N1} Mo" -f ((Get-Item target\release\pdfmanager.exe).Length / 1MB)
 
+      - name: Installeur (Inno Setup)
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$v" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup en echec" }
+          "Installeur : {0:N1} Mo" -f ((Get-Item "dist\PDFManager-rs-$v-setup.exe").Length / 1MB)
+
       - uses: actions/upload-artifact@v4
         with:
-          name: PDFManager-rs
-          path: target/release/pdfmanager.exe
+          name: PDFManager-rs-setup
+          path: dist/PDFManager-rs-*-setup.exe
           if-no-files-found: error

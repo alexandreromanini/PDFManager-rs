@@ -396,8 +396,8 @@ impl App {
                 if !super::edit_ui::ask("Appliquer les caviardages", &text) {
                     return;
                 }
-                let keep = app.tab().map(|t| t.selected.clone()).unwrap_or_default();
-                app.edit_report(move |pdf| {
+                let keep = app.tabs.iter().find(|t| t.id == id).map(|t| t.selected.clone()).unwrap_or_default();
+                app.edit_doc(id, move |pdf| {
                     let (zones, removed) = textedit::apply_redactions(pdf)?;
                     Ok((Some(keep), format!("{zones} zone{} caviardée{}{}.\nEnregistrez (Ctrl+S) : le fichier enregistré n'en \
                                              contiendra plus aucune trace.", if zones > 1 { "s" } else { "" },

@@ -217,6 +217,7 @@ impl App {
             let todo = ocr::pages_to_process(pdf, &pages, all);
             std::thread::spawn(move || {
                 const DPI: f32 = 300.0;
+                const CLOSED: &str = "document fermé";
                 let n = todo.len();
                 let mut results = vec![];
                 for (k, &page) in todo.iter().enumerate() {
@@ -227,12 +228,14 @@ impl App {
                     // Rendu dans le thread moteur (le document y vit), reconnaissance ici.
                     let (tx, rx) = channel();
                     engine.run(move |docs| {
-                        let _ = tx.send(docs.get(&id).ok_or("document fermé".to_string()).and_then(|p| ocr::render(p, page, DPI)));
+                        let _ = tx.send(docs.get(&id).ok_or(CLOSED.to_string()).and_then(|p| ocr::render(p, page, DPI)));
                     });
                     let result = rx.recv().unwrap_or(Err("moteur arrêté".into()))
                         .and_then(|(gray, w, h)| ocr::recognize(&gray, w, h, DPI, lang));
                     match result {
                         Ok(words) => results.push((page, ocr::to_points(words, DPI))),
+                        // Document fermé entre-temps : on s'arrête sans rien signaler.
+                        Err(e) if e == CLOSED => return from_engine(|app| app.ocr_cancel = None),
                         Err(e) => return from_engine(move |app| app.error(&format!("Reconnaissance impossible : {e}"))),
                     }
                 }
@@ -242,8 +245,8 @@ impl App {
                     if n == 0 {
                         return app.toast("Ces pages contiennent déjà du texte (cochez « Aussi les pages avec du texte » pour les traiter).");
                     }
-                    let keep = app.tab().map(|t| t.selected.clone()).unwrap_or_default();
-                    app.edit_report(move |pdf| {
+                    let keep = app.tabs.iter().find(|t| t.id == id).map(|t| t.selected.clone()).unwrap_or_default();
+                    app.edit_doc(id, move |pdf| {
                         let done = ocr::add_text_layers(pdf, &results)?;
                         let mut m = format!("Texte reconnu sur {done} page{} : recherche, sélection et copie possibles (Ctrl+Z pour annuler).",
                                             if done > 1 { "s" } else { "" });

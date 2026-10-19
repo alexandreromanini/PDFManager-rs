@@ -153,6 +153,10 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
             "menu" => ui.invoke_show_menu(),
+            "resize" => {
+                let (w, h) = arg.split_once(',').unwrap_or(("1280", "800"));
+                window.set_size(PhysicalSize::new(w.parse().unwrap_or(1280), h.parse().unwrap_or(800)));
+            }
             "password" => app::with_app(move |a| a.password_entered(arg)),
             "password-cancel" => app::with_app(|a| a.password_cancelled()),
             "step" => app::with_app(move |a| a.step_page(arg.parse().unwrap_or(1))),
@@ -176,6 +180,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
         }
         pump(&queue, 800);
     }
+    let (w, h) = (window.size().width, window.size().height); // après un éventuel « resize »
     let pixels = Rc::new(RefCell::new(vec![PremultipliedRgbaColor::default(); (w * h) as usize]));
     // Premier dessin : les listes demandent alors leurs lignes (vignettes à rendre).
     for _ in 0..2 {

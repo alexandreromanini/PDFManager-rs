@@ -1,0 +1,36 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2  # MuPDF compile en plusieurs minutes : mis en cache
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: Exe
+        run: cargo build --release
+
+      - name: Autotest de l'exe (chemin accentue)
+        run: |
+          $p = Start-Process target\release\pdfmanager.exe -ArgumentList '--selftest', "`"tests\fixtures\Été déjà vu.pdf`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Autotest en echec (code $($p.ExitCode))" }
+          "Taille de l'exe : {0:N1} Mo" -f ((Get-Item target\release\pdfmanager.exe).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PDFManager-rs
+          path: target/release/pdfmanager.exe
+          if-no-files-found: error

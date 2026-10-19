@@ -34,6 +34,10 @@ component IconButton inherits Rectangle {
         : ta.pressed ? Theme.pressed : ta.has-hover ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-checkable: checked;
+    accessible-checked: checked;
+    accessible-action-default => { if enabled { root.clicked(); } }
     Image {
         source: root.icon;
         width: root.icon-size;
@@ -58,6 +62,8 @@ component PrimaryButton inherits Rectangle {
     background: enabled && ta.has-hover ? Theme.accent-hover : Theme.accent;
     accessible-role: button;
     accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { root.clicked(); } }
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
@@ -81,6 +87,8 @@ component ToolRow inherits Rectangle {
     background: ta.has-hover && enabled ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { root.clicked(); } }
     HorizontalLayout {
         padding-left: 8px;
         padding-right: 8px;
@@ -119,6 +127,8 @@ component DocTab inherits Rectangle {
     background: selected ? Theme.layer : ta.has-hover ? Theme.hover : transparent;
     accessible-role: tab;
     accessible-label: tip;
+    accessible-checked: selected;
+    accessible-action-default => { root.activate(); }
     ta := TouchArea { clicked => { root.activate(); } }
     HorizontalLayout {
         padding-left: 12px;
@@ -148,6 +158,9 @@ component Tile inherits Rectangle {
     background: root.checked ? Theme.accent-soft : ta.has-hover ? Theme.hover : transparent;
     accessible-role: button;
     accessible-label: root.text;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.clicked(); }
     VerticalLayout {
         alignment: center;
         spacing: 4px;
@@ -168,6 +181,7 @@ component Tile inherits Rectangle {
 
 component Swatches inherits HorizontalLayout {
     in property <[color]> colors;
+    in property <[string]> names;
     in property <int> current;
     callback picked(int);
     spacing: 8px;
@@ -179,6 +193,11 @@ component Swatches inherits HorizontalLayout {
         background: c;
         border-width: i == root.current ? 3px : 1px;
         border-color: i == root.current ? Theme.accent : Theme.border-strong;
+        accessible-role: button;
+        accessible-label: root.names[i];
+        accessible-checkable: true;
+        accessible-checked: i == root.current;
+        accessible-action-default => { root.picked(i); }
         TouchArea { mouse-cursor: pointer; clicked => { root.picked(i); } }
     }
 }
@@ -590,6 +609,7 @@ export component AppWindow inherits Window {
                         Section { text: "Couleur"; height: 28px; vertical-alignment: center; }
                         Swatches {
                             colors: [#FFD60A, #7BD389, #64B5F6, #F48FB1, #E53935, #1B1B1B];
+                            names: ["Jaune", "Vert", "Bleu", "Rose", "Rouge", "Noir"];
                             current: root.color-index;
                             picked(i) => { root.pick-color(false, i); }
                         }
@@ -641,6 +661,7 @@ export component AppWindow inherits Window {
                         }
                         Swatches {
                             colors: [#000000, #E53935, #1E88E5, #43A047, #FB8C00, #8E24AA];
+                            names: ["Noir", "Rouge", "Bleu", "Vert", "Orange", "Violet"];
                             current: root.text-color-index;
                             picked(i) => { root.pick-color(true, i); }
                         }

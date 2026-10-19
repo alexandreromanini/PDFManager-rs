@@ -1,6 +1,6 @@
 [package]
 name = "pdfmanager"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "Lecteur et éditeur PDF personnel (réécriture en Rust de PDFManager)"
 license = "AGPL-3.0-or-later"
@@ -15,7 +15,9 @@ open = "5.4.4"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha2 = "0.10"
 slint = { version = "1.18", features = ["unstable-winit-030"] }
+ureq = "3"
 
 [features]
 # Développement : captures d'écran hors écran (pdfmanager --capture …), absent de l'exe livré.
@@ -33,3 +35,6 @@ strip = true       # symboles de débogage retirés : exe plus léger
 # MuPDF (bibliothèque Rust) avec un correctif : voir vendor/mupdf/CORRECTIF.md.
 [patch.crates-io]
 mupdf = { path = "vendor/mupdf" }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs"] }

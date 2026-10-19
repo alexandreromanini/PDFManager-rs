@@ -19,6 +19,7 @@ struct Edited {
     sizes: Vec<(f32, f32)>,
     bookmarks: Vec<crate::pdf::Bookmark>,
     comments: Vec<crate::annot::AnnotInfo>,
+    fields: Vec<crate::forms::FieldInfo>,
     modified: bool,
     can_undo: bool,
     can_redo: bool,
@@ -29,13 +30,14 @@ fn state_of(pdf: &Pdf) -> Edited {
         sizes: pdf.page_sizes().to_vec(),
         bookmarks: pdf.bookmarks(),
         comments: crate::annot::list(pdf),
+        fields: crate::forms::fields(pdf),
         modified: pdf.modified(),
         can_undo: pdf.undo_label().is_some(),
         can_redo: pdf.redo_label().is_some(),
     }
 }
 
-fn ask(title: &str, text: &str) -> bool {
+pub(super) fn ask(title: &str, text: &str) -> bool {
     rfd::MessageDialog::new()
         .set_title(title)
         .set_description(text)
@@ -120,6 +122,16 @@ impl App {
         let targets = self.targets();
         match name {
             "escape" => self.escape(),
+            "editor-commit" => self.editor_commit(),
+            "print" => self.print(),
+            "properties" => self.properties(),
+            "unprotect" => self.unprotect(None),
+            "check-updates" => self.check_updates(true),
+            "protect" => {
+                if self.current_tab().is_some() {
+                    self.ui().invoke_show_protect();
+                }
+            }
             "add-image" => self.add_image_start(),
             "header" => {
                 if self.current_tab().is_some() {
@@ -199,6 +211,7 @@ impl App {
         tab.sizes = state.sizes;
         tab.bookmarks = state.bookmarks;
         App::comments_changed(tab, state.comments);
+        tab.fields = state.fields;
         tab.modified = state.modified;
         tab.can_undo = state.can_undo;
         tab.can_redo = state.can_redo;
@@ -569,7 +582,7 @@ impl App {
         if self.quit_after_saves > 0 {
             self.quit_after_saves -= 1;
             if self.quit_after_saves == 0 && !self.has_unsaved() {
-                let _ = slint::quit_event_loop();
+                self.exit_now();
             }
         }
     }
@@ -601,7 +614,7 @@ impl App {
         let unsaved: Vec<(DocId, PathBuf, String)> = self.tabs.iter().filter(|t| t.modified)
             .map(|t| (t.id, t.path.clone(), t.name.clone())).collect();
         if unsaved.is_empty() {
-            let _ = slint::quit_event_loop();
+            self.exit_now();
             return;
         }
         let names: Vec<String> = unsaved.iter().map(|u| format!("« {} »", u.2)).collect();
@@ -618,9 +631,9 @@ impl App {
                 }
             }
             rfd::MessageDialogResult::Custom(c) if c == "Quitter sans enregistrer" => {
-                let _ = slint::quit_event_loop();
+                self.exit_now();
             }
-            _ => {}
+            _ => self.exit_cancelled(),
         }
     }
 }

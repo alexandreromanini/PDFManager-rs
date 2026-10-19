@@ -46,3 +46,5 @@ Root: HKA; Subkey: "Software\Classes\PDFManager-rs.Document\shell\open\command";
 
 [Run]
 Filename: "{app}\pdfmanager.exe"; Description: "{cm:LaunchProgram,PDFManager (Rust)}"; Flags: nowait postinstall skipifsilent
+; Mise à jour depuis l'application (installation silencieuse) : relance automatique.
+Filename: "{app}\pdfmanager.exe"; Flags: nowait postinstall skipifnotsilent

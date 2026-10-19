@@ -14,6 +14,8 @@ export struct PageData {
 }
 export struct PropRow { label: string, value: string }
 export struct ChatMessage { user: bool, text: string, pages: [int] }
+export struct SigData { level: string, summary: string, details: string, can-trust: bool, can-view: bool }
+export struct DiffData { kind: string, text: string, page: string }
 export struct CommentData { page: int, label: string, author: string, date: string, content: string, selected: bool }
 export struct ThumbData { index: int, image: image, w: length, h: length, selected: bool, drop-before: bool }
 export struct BookmarkData { title: string, level: int, page: int }
@@ -250,6 +252,34 @@ export component AppWindow inherits Window {
     public function show-ocr() { ocr-popup.show(); }
     public function show-compress() { compress-popup.show(); }
     public function show-images() { images-popup.show(); }
+    public function show-sig-create() { sig-create-popup.show(); }
+    public function show-digital() { digital-popup.show(); }
+    function show-signatures() {
+        if (!root.sidebar-visible) { root.toggle-sidebar(); }
+        root.set-rail-tab(5);
+        root.action("verify");
+    }
+    in property <[image]> saved-sigs;
+    in property <string> sig-path;
+    in property <image> sig-preview;
+    in property <[string]> sig-choices;
+    in-out property <string> pfx-path;
+    in-out property <string> tsa-url;
+    in property <[SigData]> sigs;
+    in property <string> sig-status;
+    in property <[DiffData]> diffs;
+    callback sig-draw(float, float, bool);
+    callback sig-clear();
+    callback sig-typed(string);
+    callback sig-import();
+    callback sig-save(int, float, float);
+    callback sig-place(int);
+    callback sig-delete(int);
+    callback pick-pfx();
+    callback digital-run(string, string, string, string, bool, string, int);
+    callback sig-trust(int);
+    callback sig-signed-version(int);
+    callback diff-clicked(int);
     in property <bool> ai-installed;
     in property <bool> ai-busy;
     in property <string> ai-progress;
@@ -471,14 +501,16 @@ export component AppWindow inherits Window {
                     ToolRow { tile: true; icon: Icons.ocr; text: "Reconnaître le texte (OCR)"; enabled: root.tabs.length > 0; clicked => { root.action("ocr"); } }
                     ToolRow { tile: true; icon: Icons.shrink; text: "Réduire la taille"; enabled: root.tabs.length > 0; clicked => { root.action("compress"); } }
                     ToolRow { tile: true; icon: Icons.convert; text: "Convertir (Word, images, texte)"; clicked => { root.set-panel(5); } }
+                    ToolRow { tile: true; icon: Icons.compare; text: "Comparer deux PDF"; enabled: root.tabs.length > 0; clicked => { root.action("compare"); } }
                     ToolRow { tile: true; icon: Icons.archive; text: "Archiver (PDF/A)"; enabled: root.tabs.length > 0; clicked => { root.action("pdfa"); } }
                     Section { text: "Signer et protéger"; height: 28px; vertical-alignment: center; }
+                    ToolRow { tile: true; icon: Icons.signature; text: "Signer"; enabled: root.tabs.length > 0; clicked => { root.set-panel(6); } }
                     ToolRow { tile: true; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
                     ToolRow { tile: true; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
                     Section { text: "Assistant IA"; height: 28px; vertical-alignment: center; }
                     ToolRow { tile: true; icon: Icons.bot; text: "Résumer, poser des questions"; clicked => { root.show-assistant(); } }
                     Rectangle { height: 12px; }
-                    Text { text: "Signer et comparer arrivent dans la dernière phase."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
+                    Rectangle { height: 4px; }
                     }
                 }
                 if root.panel == 1: Flickable {
@@ -707,6 +739,45 @@ export component AppWindow inherits Window {
                         ToolRow { icon: Icons.file-input; text: "Depuis des documents Office…"; clicked => { root.action("from-office"); } }
                         Text {
                             text: "Word : paragraphes et images sont reconstruits ; la mise en page peut différer pour les documents complexes. Office : LibreOffice (gratuit) doit être installé.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                    }
+                }
+                if root.panel == 6: Flickable {
+                    content-height: sgn.preferred-height;
+                    sgn := VerticalLayout {
+                        padding: 12px;
+                        padding-top: 6px;
+                        spacing: 4px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            IconButton { icon: Icons.back; label: "Tous les outils"; clicked => { root.set-tool(""); root.set-panel(0); } }
+                            Text { text: "Signer"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        Section { text: "Signature manuscrite"; height: 28px; vertical-alignment: center; }
+                        ToolRow { icon: Icons.pen; text: "Créer une signature…"; clicked => { root.action("sign-create"); } }
+                        for img[i] in root.saved-sigs: Rectangle {
+                            height: 64px;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: Theme.border;
+                            background: sta.has-hover ? Theme.hover : Theme.layer;
+                            sta := TouchArea { mouse-cursor: pointer; clicked => { root.sig-place(i); } }
+                            Image { x: 8px; y: 6px; width: parent.width - 52px; height: parent.height - 12px; source: img; image-fit: contain; }
+                            IconButton { x: parent.width - 38px; y: 14px; icon: Icons.trash; label: "Supprimer"; clicked => { root.sig-delete(i); } }
+                        }
+                        if root.saved-sigs.length > 0: Text { text: "Cliquez une signature, puis tracez son emplacement sur la page (ou cliquez)."; color: Theme.text2; wrap: word-wrap; font-size: 12px; }
+                        Section { text: "Signature numérique"; height: 28px; vertical-alignment: center; }
+                        Rectangle {
+                            height: 62px;
+                            Tile { x: 0px; icon: Icons.signature; text: "Signer avec un certificat"; checked: root.tool == "digital-sign"; clicked => { root.set-tool("digital-sign"); } }
+                        }
+                        ToolRow { icon: Icons.badge; text: "Vérifier les signatures"; enabled: root.tabs.length > 0; clicked => { root.show-signatures(); } }
+                        Text {
+                            text: "Signature numérique : certificat .pfx / .p12, au format PAdES reconnu par Acrobat, horodatage possible. Elle s'ajoute au fichier sans toucher aux signatures précédentes. Un document signé reste modifiable (commentaires, formulaire) : les signatures restent valides et indiquent que le document a été complété.";
                             color: Theme.text2;
                             wrap: word-wrap;
                             font-size: 12px;
@@ -1100,6 +1171,60 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                 }
+                                if root.rail-tab == 4 && root.diffs.length == 0: Text {
+                                    horizontal-stretch: 1;
+                                    text: "Aucune comparaison : « Comparer deux PDF » dans les outils.";
+                                    color: Theme.text2;
+                                    wrap: word-wrap;
+                                    vertical-alignment: top;
+                                    horizontal-alignment: center;
+                                }
+                                if root.rail-tab == 4 && root.diffs.length > 0: ListView {
+                                    horizontal-stretch: 1;
+                                    for d[i] in root.diffs: Rectangle {
+                                        height: dcol.preferred-height + 8px;
+                                        background: dta.has-hover ? Theme.hover : transparent;
+                                        dta := TouchArea { mouse-cursor: pointer; clicked => { root.diff-clicked(i); } }
+                                        dcol := VerticalLayout {
+                                            y: 4px;
+                                            padding-left: 10px;
+                                            padding-right: 10px;
+                                            spacing: 2px;
+                                            Text { text: d.kind; font-weight: 600; color: d.kind == "Ajouté" ? #2e7d32 : d.kind == "Supprimé" ? #c62828 : Theme.accent; }
+                                            Text { text: d.text; color: Theme.text; wrap: word-wrap; }
+                                            Text { text: d.page; font-size: 11px; color: Theme.text2; }
+                                        }
+                                    }
+                                }
+                                if root.rail-tab == 5: VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    padding: 10px;
+                                    spacing: 8px;
+                                    if root.sig-status != "": Text { text: root.sig-status; color: Theme.text2; wrap: word-wrap; }
+                                    ListView {
+                                        vertical-stretch: 1;
+                                        for s[i] in root.sigs: Rectangle {
+                                            height: scol.preferred-height + 12px;
+                                            scol := VerticalLayout {
+                                                y: 6px;
+                                                spacing: 4px;
+                                                HorizontalLayout {
+                                                    spacing: 6px;
+                                                    Image {
+                                                        width: 18px;
+                                                        source: s.level == "ok" ? Icons.ok : s.level == "warning" ? Icons.warning : Icons.bad;
+                                                        colorize: s.level == "ok" ? #2e7d32 : s.level == "warning" ? #e68a00 : #c62828;
+                                                    }
+                                                    Text { text: s.summary; font-weight: 600; color: Theme.text; wrap: word-wrap; }
+                                                }
+                                                Text { text: s.details; color: Theme.text2; wrap: word-wrap; font-size: 12px; }
+                                                if s.can-trust: Button { text: "Faire confiance au certificat…"; clicked => { root.sig-trust(i); } }
+                                                if s.can-view: Button { text: "Voir la version signée"; clicked => { root.sig-signed-version(i); } }
+                                                Rectangle { height: 1px; background: Theme.border; }
+                                            }
+                                        }
+                                    }
+                                }
                                 Rectangle { width: 1px; background: Theme.border; }
                                 VerticalLayout {
                                     width: 48px;
@@ -1110,6 +1235,8 @@ export component AppWindow inherits Window {
                                     IconButton { x: 8px; icon: Icons.bookmark; checked: root.rail-tab == 1; label: "Signets"; clicked => { root.set-rail-tab(1); } }
                                     IconButton { x: 8px; icon: Icons.list; checked: root.rail-tab == 2; label: "Commentaires"; clicked => { root.set-rail-tab(2); } }
                                     IconButton { x: 8px; icon: Icons.bot; checked: root.rail-tab == 3; label: "Assistant IA"; clicked => { root.set-rail-tab(3); } }
+                                    IconButton { x: 8px; icon: Icons.compare; checked: root.rail-tab == 4; label: "Différences"; clicked => { root.set-rail-tab(4); } }
+                                    IconButton { x: 8px; icon: Icons.signature; checked: root.rail-tab == 5; label: "Signatures"; clicked => { root.show-signatures(); } }
                                 }
                             }
                         }
@@ -1780,6 +1907,125 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { images-popup.close(); } }
                     Button { text: "Exporter…"; primary: true; clicked => { images-popup.close(); root.export-images-run(i-format.current-index == 1, i-dpi.value, i-pages.text); } }
+                }
+            }
+        }
+    }
+
+    sig-create-popup := PopupWindow {
+        x: (root.width - 520px) / 2;
+        y: (root.height - 380px) / 2;
+        width: 520px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Créer une signature"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                sig-mode := ComboBox { model: ["Dessiner à la souris", "Taper mon nom", "Importer une image (scan, photo)"]; current-index: 0; }
+                pad := Rectangle {
+                    height: 180px;
+                    background: white;
+                    border-width: 1px;
+                    border-color: Theme.border-strong;
+                    border-radius: 6px;
+                    if sig-mode.current-index == 0: TouchArea {
+                        mouse-cursor: crosshair;
+                        pointer-event(e) => {
+                            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                                root.sig-draw(self.mouse-x / 1px, self.mouse-y / 1px, true);
+                            }
+                        }
+                        moved => { if (self.pressed) { root.sig-draw(self.mouse-x / 1px, self.mouse-y / 1px, false); } }
+                    }
+                    if sig-mode.current-index == 0 && root.sig-path != "": Path {
+                        width: parent.width;
+                        height: parent.height;
+                        viewbox-width: self.width / 1px;
+                        viewbox-height: self.height / 1px;
+                        commands: root.sig-path;
+                        stroke: #0d1a59;
+                        stroke-width: 2.2px;
+                    }
+                    if sig-mode.current-index == 0 && root.sig-path == "": Text { text: "Signez ici"; color: #9a9a9a; horizontal-alignment: center; vertical-alignment: center; }
+                    if sig-mode.current-index != 0: Image { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; source: root.sig-preview; image-fit: contain; }
+                }
+                if sig-mode.current-index == 1: LineEdit { placeholder-text: "Votre nom"; edited(t) => { root.sig-typed(t); } }
+                HorizontalLayout {
+                    spacing: 8px;
+                    if sig-mode.current-index == 0: Button { text: "Effacer"; clicked => { root.sig-clear(); } }
+                    if sig-mode.current-index == 2: Button { text: "Choisir l'image…"; clicked => { root.sig-import(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: "Annuler"; clicked => { sig-create-popup.close(); } }
+                    Button { text: "Enregistrer"; primary: true; clicked => { sig-create-popup.close(); root.sig-save(sig-mode.current-index, pad.width / 1px, pad.height / 1px); } }
+                }
+            }
+        }
+    }
+
+    digital-popup := PopupWindow {
+        x: (root.width - 520px) / 2;
+        y: (root.height - 440px) / 2;
+        width: 520px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: "Signer avec un certificat"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                GridLayout {
+                    spacing: 6px;
+                    Row {
+                        Text { text: "Certificat (.pfx, .p12)"; color: Theme.text; vertical-alignment: center; }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            LineEdit { text <=> root.pfx-path; }
+                            Button { text: "…"; clicked => { root.pick-pfx(); } }
+                        }
+                    }
+                    Row {
+                        Text { text: "Mot de passe"; color: Theme.text; vertical-alignment: center; }
+                        d-pw := LineEdit { input-type: password; }
+                    }
+                    Row {
+                        Text { text: "Motif"; color: Theme.text; vertical-alignment: center; }
+                        d-reason := LineEdit { placeholder-text: "facultatif (ex. J'approuve ce document)"; }
+                    }
+                    Row {
+                        Text { text: "Lieu"; color: Theme.text; vertical-alignment: center; }
+                        d-location := LineEdit { placeholder-text: "facultatif"; }
+                    }
+                    Row {
+                        Text { text: "Image de signature"; color: Theme.text; vertical-alignment: center; }
+                        d-image := ComboBox { model: root.sig-choices; current-index: root.sig-choices.length > 1 ? 1 : 0; }
+                    }
+                }
+                d-tsa := CheckBox { text: "Horodater (serveur d'horodatage, connexion internet)"; checked: true; }
+                if d-tsa.checked: LineEdit { text <=> root.tsa-url; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { digital-popup.close(); } }
+                    Button {
+                        text: "Signer…";
+                        primary: true;
+                        clicked => {
+                            digital-popup.close();
+                            root.digital-run(root.pfx-path, d-pw.text, d-reason.text, d-location.text, d-tsa.checked, root.tsa-url, d-image.current-index);
+                        }
+                    }
                 }
             }
         }

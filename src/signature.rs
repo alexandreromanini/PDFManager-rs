@@ -500,7 +500,8 @@ fn appearance_stream(doc: &mut mupdf::pdf::PdfDocument, (w, h): (f32, f32), rota
     // Dimensions à l'écran (page tournée d'un quart de tour : largeur et hauteur échangées).
     let turned = rotation.rem_euclid(180) == 90;
     let (sw, sh) = if turned { (h, w) } else { (w, h) };
-    let mut ops = String::new();
+    // Octets : le texte est en WinAnsi (é = 0xE9), pas en UTF-8.
+    let mut ops: Vec<u8> = vec![];
     let mut resources = doc.new_dict().map_err(err)?;
     let (mut tx, ty, mut tw, mut th) = (3.0_f32, 3.0_f32, sw - 6.0, sh - 6.0);
     if let Some(png) = &look.image {
@@ -511,7 +512,7 @@ fn appearance_stream(doc: &mut mupdf::pdf::PdfDocument, (w, h): (f32, f32), rota
         let k = (bw / iw).min(bh / ih);
         let (dw, dh) = (iw * k, ih * k);
         let (dx, dy) = (bx + (bw - dw) / 2.0, by + (bh - dh) / 2.0);
-        ops.push_str(&format!("q {dw} 0 0 {dh} {dx} {dy} cm /Im0 Do Q\n"));
+        ops.extend(format!("q {dw} 0 0 {dh} {dx} {dy} cm /Im0 Do Q\n").bytes());
         let mut xobj = doc.new_dict().map_err(err)?;
         xobj.dict_put("Im0", doc.add_image(&img).map_err(err)?).map_err(err)?;
         resources.dict_put("XObject", xobj).map_err(err)?;
@@ -526,15 +527,15 @@ fn appearance_stream(doc: &mut mupdf::pdf::PdfDocument, (w, h): (f32, f32), rota
     let n = look.lines.len().max(1) as f32;
     let longest = look.lines.iter().map(|l| crate::annot::text_width(l, 1.0)).fold(0.0, f32::max).max(1.0);
     let size = (th / (n * 1.2)).min(tw / longest).clamp(3.0, 12.0);
-    ops.push_str("BT 0 g\n");
+    ops.extend(b"BT 0 g\n");
     for (k, line) in look.lines.iter().enumerate() {
         let y = ty + th - (k as f32 + 1.0) * size * 1.2 + size * 0.2;
         let font = if k == 1 { "/HeBo" } else { "/Helv" };
-        ops.push_str(&format!("{font} {size} Tf 1 0 0 1 {tx} {y} Tm "));
-        ops.push_str(&String::from_utf8_lossy(&crate::ocr::literal(line)));
-        ops.push_str(" Tj\n");
+        ops.extend(format!("{font} {size} Tf 1 0 0 1 {tx} {y} Tm ").bytes());
+        ops.extend(crate::ocr::literal(line));
+        ops.extend(b" Tj\n");
     }
-    ops.push_str("ET\n");
+    ops.extend(b"ET\n");
     let mut fonts = doc.new_dict().map_err(err)?;
     for (key, base) in [("Helv", "Helvetica"), ("HeBo", "Helvetica-Bold")] {
         let f = doc.new_object_from_str(&format!("<</Type/Font/Subtype/Type1/BaseFont/{base}/Encoding/WinAnsiEncoding>>"))
@@ -549,9 +550,10 @@ fn appearance_stream(doc: &mut mupdf::pdf::PdfDocument, (w, h): (f32, f32), rota
         270 => format!("0 -1 1 0 0 {h}"),
         _ => "1 0 0 1 0 0".to_string(),
     };
-    let dict = doc.new_object_from_str(&format!("<</Type/XObject/Subtype/Form/BBox[0 0 {w} {h}]/Matrix[{matrix}]>>"))
+    // BBox : repère du dessin (l'écran) ; Matrix le tourne dans le cadre du champ.
+    let dict = doc.new_object_from_str(&format!("<</Type/XObject/Subtype/Form/BBox[0 0 {sw} {sh}]/Matrix[{matrix}]>>"))
         .map_err(err)?;
-    let buf = mupdf::Buffer::from_bytes(ops.as_bytes()).map_err(err)?;
+    let buf = mupdf::Buffer::from_bytes(&ops).map_err(err)?;
     let mut stream = doc.add_stream(&buf, Some(&dict), false).map_err(err)?;
     stream.dict_put("Resources", resources).map_err(err)?;
     Ok(stream)
@@ -954,7 +956,9 @@ mod tests {
             }
             let data = src.bytes_for_disk().unwrap();
             let look = Look { lines: appearance_lines(&signer.name(), chrono::Local::now(), "Accord", "Lyon"), image: None };
-            let signed = sign(&data, Place::New(0, Rect::new(300.0, 600.0, 520.0, 680.0)), &signer, &look, "Accord", "Lyon", None).unwrap();
+            // Page tournée : affichée en paysage (842 × 595).
+            let at = if rotation == 0 { Rect::new(300.0, 600.0, 520.0, 680.0) } else { Rect::new(500.0, 400.0, 720.0, 480.0) };
+            let signed = sign(&data, Place::New(0, at), &signer, &look, "Accord", "Lyon", None).unwrap();
             assert!(signed.starts_with(&data), "ajout à la suite");
             let st = verify(&signed, None, &ca()).unwrap();
             assert_eq!(st.len(), 1, "{f}");
@@ -971,7 +975,10 @@ mod tests {
             assert_eq!(&after[..st[0].revision_end], &signed[..st[0].revision_end]);
 
             // Deux signatures : la première reste valide.
-            let again = sign(&after, Place::New(0, Rect::new(60.0, 600.0, 280.0, 680.0)), &signer, &look, "", "", None).unwrap();
+            let at = if rotation == 0 { Rect::new(60.0, 600.0, 280.0, 680.0) } else { Rect::new(200.0, 400.0, 420.0, 480.0) };
+            let mut look = look;
+            look.image = Some(text_png("Alex Testeur").unwrap());
+            let again = sign(&after, Place::New(0, at), &signer, &look, "", "", None).unwrap();
             let st = verify(&again, None, &ca()).unwrap();
             assert_eq!(st.len(), 2);
             assert!(st.iter().all(|s| s.intact), "{st:?}");
@@ -997,5 +1004,18 @@ mod tests {
         assert!(is_transparent_png(&clear));
         let small = mupdf::Image::from_bytes(&clear).unwrap();
         assert!(small.width() < page.width, "recadré sur l'encre");
+    }
+
+    /// Réseau : `cargo test --release -- --ignored horodatage`.
+    #[test]
+    #[ignore]
+    fn horodatage() {
+        let signer = load_signer(Path::new(&format!("{D}rsa-aes.pfx")), "test").unwrap();
+        let look = Look { lines: vec!["Test".into()], image: None };
+        let signed = sign(&fixture(), Place::New(0, Rect::new(300.0, 600.0, 520.0, 680.0)), &signer, &look, "", "", Some(DEFAULT_TSA)).unwrap();
+        let st = verify(&signed, None, &ca()).unwrap();
+        eprintln!("{:?}", st[0].details());
+        assert!(st[0].intact && st[0].timestamped, "{:?}", st[0]);
+        std::fs::write("/tmp/claude-1000/signe-horodate.pdf", &signed).unwrap();
     }
 }

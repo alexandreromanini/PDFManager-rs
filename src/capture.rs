@@ -92,6 +92,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "tool" => app::with_app(move |a| a.set_tool(&arg)),
             "sleep" => pump(&queue, arg.parse().unwrap_or(1000)),
             "ask" => app::with_app(move |a| a.ai_ask(arg)),
+            "compare" => app::with_app(move |a| a.compare_with(std::path::PathBuf::from(arg))),
             "color" => app::with_app(move |a| a.pick_color(false, arg.parse().unwrap_or(0))),
             "type" => ui.set_editor_text(arg.into()),
             // drag:page,x0,y0,x1,y1 (pixels de la page affichée)

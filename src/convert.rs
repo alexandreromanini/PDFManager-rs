@@ -175,7 +175,7 @@ pub const LO_URL: &str = "https://fr.libreoffice.org/download/telecharger-libreo
 pub const OFFICE: &[&str] = &["doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "ppt", "pptx", "odp", "txt"];
 
 fn program_files() -> Vec<PathBuf> {
-    ["ProgramFiles", "ProgramFiles(x86)"].iter().filter_map(|v| std::env::var_os(v)).map(PathBuf::from).collect()
+    ["ProgramFiles", "ProgramFiles(x86)"].iter().filter_map(std::env::var_os).map(PathBuf::from).collect()
 }
 
 fn which(name: &str) -> Option<PathBuf> {

@@ -186,11 +186,10 @@ impl App {
             }
             "reset-crop" => self.edit("Recadrage annulé.", move |pdf| edit::reset_crop(pdf, &targets).map(|_| Some(targets))),
             "merge" => self.merge_start(),
-            "split" => {
-                if self.current_tab().is_some() {
+            "split"
+                if self.current_tab().is_some() => {
                     self.ui().invoke_show_split();
                 }
-            }
             _ => {}
         }
     }

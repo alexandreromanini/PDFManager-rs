@@ -17,7 +17,7 @@ usages.
 | 1 | Lecteur complet (voir ci-dessous) | ✅ 0.1.0 |
 | 2 | Enregistrer, annuler/rétablir, organiser les pages | ✅ 0.2.0 |
 | 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | ✅ 0.3.0 |
-| 4 | Formulaires, protection, impression, mises à jour | à venir |
+| 4 | Formulaires, protection, impression, mises à jour | ✅ 0.4.0 |
 | 5 | Modifier le texte existant, caviardage | à venir |
 | 6 | OCR, assistant IA, conversions | à venir |
 | 7 | Signatures, comparaison | à venir |
@@ -64,6 +64,23 @@ usages.
 - En-tête, pied de page et numérotation ({n}, {total}, {date}, {fichier}) et filigrane
   (taille, opacité, inclinaison), sur toutes les pages ou une plage.
 - Tout est annulable (Ctrl+Z), et reste droit et bien placé sur les pages pivotées.
+
+## Fonctions (phase 4)
+
+- Formulaires : les champs sont surlignés en bleu ; cliquer un champ texte pour écrire
+  dedans (Entrée valide), une case pour la cocher, une liste pour choisir. Panneau
+  « Formulaires » pour créer des champs (texte, case à cocher, liste déroulante, signature)
+  ou en supprimer.
+- Protéger par mot de passe (AES-256) : mot de passe d'ouverture, mot de passe des
+  permissions, choix des permissions (imprimer, copier, commenter, modifier). Retirer la
+  protection (mot de passe des permissions demandé si besoin).
+- Propriétés du document (Ctrl+D) : titre, auteur, sujet, mots-clés…
+- Imprimer (Ctrl+P), avec la fenêtre d'impression de Windows : pages ajustées au papier et
+  tournées si besoin ; refusé si l'auteur du document l'interdit.
+- Mises à jour : vérification discrète au démarrage, ou menu « Rechercher des mises à
+  jour… » ; l'installeur est téléchargé, vérifié (taille, empreinte SHA-256) puis installé
+  sans assistant, et l'application se relance.
+- `vendor/mupdf` : bibliothèque MuPDF (Rust) avec un correctif, voir `CORRECTIF.md`.
 
 ## Installation
 

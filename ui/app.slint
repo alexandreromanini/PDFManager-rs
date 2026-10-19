@@ -10,8 +10,9 @@ export struct RecentData { name: string, folder: string, when: string, path: str
 export struct Area { x: length, y: length, w: length, h: length }
 export struct PageData {
     index: int, x: length, y: length, w: length, h: length, image: image,
-    hits: [Area], current: [Area], selection: [Area], draft: [Area], marked: [Area], path: string,
+    hits: [Area], current: [Area], selection: [Area], draft: [Area], marked: [Area], path: string, fields: [Area],
 }
+export struct PropRow { label: string, value: string }
 export struct CommentData { page: int, label: string, author: string, date: string, content: string, selected: bool }
 export struct ThumbData { index: int, image: image, w: length, h: length, selected: bool, drop-before: bool }
 export struct BookmarkData { title: string, level: int, page: int }
@@ -240,6 +241,20 @@ export component AppWindow inherits Window {
     public function show-note() { note-popup.show(); }
     public function show-header() { header-popup.show(); }
     public function show-watermark() { watermark-popup.show(); }
+    public function show-choices() { choice-popup.show(); }
+    public function show-protect() { protect-popup.show(); }
+    public function show-owner() { owner-popup.show(); }
+    public function show-props() { props-popup.show(); }
+    in property <bool> editor-single;
+    in property <[string]> choices;
+    in property <string> choice-title;
+    in property <[PropRow]> prop-rows;
+    in property <string> prop-info;
+    callback choice-picked(int);
+    callback protect-run(string, string, string, string, bool, bool, bool, bool);
+    callback owner-entered(string);
+    callback prop-edited(int, string);
+    callback props-save();
     function show-comments() {
         if (!root.sidebar-visible) { root.toggle-sidebar(); }
         root.set-rail-tab(2);
@@ -330,6 +345,8 @@ export component AppWindow inherits Window {
                 if (e.text == "w" || e.text == "W") { root.close-tab(root.current-tab); return accept; }
                 if (e.text == "f" || e.text == "F") { root.focus-search(); return accept; }
                 if (e.text == "c" || e.text == "C") { root.copy(); return accept; }
+                if (e.text == "p" || e.text == "P") { root.action("print"); return accept; }
+                if (e.text == "d" || e.text == "D") { root.action("properties"); return accept; }
                 if (e.text == "z" || e.text == "Z") { root.action("undo"); return accept; }
                 if (e.text == "y" || e.text == "Y") { root.action("redo"); return accept; }
                 if (e.text == "s" || e.text == "S") { root.action(e.modifiers.shift ? "save-as" : "save"); return accept; }
@@ -428,8 +445,12 @@ export component AppWindow inherits Window {
                     Section { text: "Modifier"; height: 28px; vertical-alignment: center; }
                     ToolRow { tile: true; icon: Icons.edit; text: "Ajouter du texte et des images"; enabled: root.tabs.length > 0; clicked => { root.set-panel(3); } }
                     ToolRow { tile: true; icon: Icons.note; text: "Commenter"; enabled: root.tabs.length > 0; clicked => { root.set-panel(2); } }
+                    ToolRow { tile: true; icon: Icons.field; text: "Formulaires"; enabled: root.tabs.length > 0; clicked => { root.set-panel(4); } }
+                    Section { text: "Signer et protéger"; height: 28px; vertical-alignment: center; }
+                    ToolRow { tile: true; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
+                    ToolRow { tile: true; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
                     Rectangle { height: 12px; }
-                    Text { text: "Les autres outils (formulaires, convertir, signer et protéger, assistant IA) arrivent dans les prochaines phases."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
+                    Text { text: "Les autres outils (convertir, OCR, signer, assistant IA) arrivent dans les prochaines phases."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
                 }
                 if root.panel == 1: Flickable {
                     content-height: org.preferred-height;
@@ -573,6 +594,49 @@ export component AppWindow inherits Window {
                         Text {
                             text: "Modifier le texte d'origine du document arrive en phase 5.";
                             color: Theme.text3;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                    }
+                }
+                if root.panel == 4: Flickable {
+                    content-height: frm.preferred-height;
+                    frm := VerticalLayout {
+                        padding: 12px;
+                        padding-top: 6px;
+                        spacing: 6px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            IconButton { icon: Icons.back; label: "Tous les outils"; clicked => { root.set-tool(""); root.set-panel(0); } }
+                            Text { text: "Formulaires"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        Rectangle {
+                            height: 2 * 62px;
+                            for t[i] in [
+                                { id: "", text: "Remplir", icon: Icons.pointer },
+                                { id: "field-text", text: "Champ texte", icon: Icons.field },
+                                { id: "field-check", text: "Case à cocher", icon: Icons.check },
+                                { id: "field-combo", text: "Liste déroulante", icon: Icons.combo },
+                                { id: "field-signature", text: "Champ de signature", icon: Icons.signature },
+                            ]: Tile {
+                                x: Math.mod(i, 4) * 62px;
+                                y: Math.floor(i / 4) * 62px;
+                                icon: t.icon;
+                                text: t.text;
+                                checked: root.tool == t.id;
+                                clicked => { root.set-tool(t.id); }
+                            }
+                        }
+                        Text {
+                            text: "Remplir : cliquez dans un champ (surligné en bleu) et écrivez directement ; Entrée valide. Un clic sur une case la coche ou la décoche.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                        Text {
+                            text: "Créer : choisissez un type de champ, puis tracez son cadre sur la page (ou cliquez). Un clic sur un champ existant propose de le supprimer.";
+                            color: Theme.text2;
                             wrap: word-wrap;
                             font-size: 12px;
                         }
@@ -745,6 +809,7 @@ export component AppWindow inherits Window {
                                     for b in p.current: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.current-hit; }
                                     for b in p.selection: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.selection; }
                                     for b in p.draft: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; border-width: 2px; border-color: Theme.accent; background: #D93A2B1f; }
+                                    for b in p.fields: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: #2563eb1c; border-width: 1px; border-color: #2563eb66; }
                                     for b in p.marked: Rectangle { x: b.x - 2px; y: b.y - 2px; width: b.w + 4px; height: b.h + 4px; border-width: 2px; border-color: Theme.accent; }
                                     if p.path != "": Path {
                                         width: parent.width;
@@ -789,8 +854,9 @@ export component AppWindow inherits Window {
                                         text <=> root.editor-text;
                                         font-size: root.editor-font;
                                         color: root.editor-color;
-                                        single-line: false;
+                                        single-line: root.editor-single;
                                         init => { self.focus(); }
+                                        accepted => { root.action("editor-commit"); }
                                     }
                                 }
                             }
@@ -948,6 +1014,8 @@ export component AppWindow inherits Window {
                     { label: "Enregistrer  (Ctrl+S)", action: "save" },
                     { label: "Enregistrer sous…  (Ctrl+Maj+S)", action: "save-as" },
                     { label: "Enregistrer une copie…", action: "save-copy" },
+                    { label: "Imprimer…  (Ctrl+P)", action: "print" },
+                    { label: "Propriétés du document…  (Ctrl+D)", action: "properties" },
                     { label: "Annuler  (Ctrl+Z)", action: "undo" },
                     { label: "Rétablir  (Ctrl+Y)", action: "redo" },
                     { label: "Fermer l'onglet  (Ctrl+W)", action: "close" },
@@ -957,6 +1025,7 @@ export component AppWindow inherits Window {
                     { label: "Thème : système", action: "theme-system" },
                     { label: "Thème : clair", action: "theme-light" },
                     { label: "Thème : sombre", action: "theme-dark" },
+                    { label: "Rechercher des mises à jour…", action: "check-updates" },
                     { label: "À propos", action: "about" },
                     { label: "Quitter", action: "quit" },
                 ]: Rectangle {
@@ -968,7 +1037,8 @@ export component AppWindow inherits Window {
                         clicked => {
                             if (item.action == "open") { root.open(); }
                             if (item.action == "save" || item.action == "save-as" || item.action == "save-copy"
-                                || item.action == "undo" || item.action == "redo") { root.action(item.action); }
+                                || item.action == "undo" || item.action == "redo" || item.action == "print"
+                                || item.action == "properties" || item.action == "check-updates") { root.action(item.action); }
                             if (item.action == "close") { root.close-tab(root.current-tab); }
                             if (item.action == "home") { root.go-home(); }
                             if (item.action == "sidebar") { root.toggle-sidebar(); }
@@ -1261,6 +1331,167 @@ export component AppWindow inherits Window {
                             root.watermark-run(w-text.text, w-size.value, w-opacity.value, w-angle.value, w-pages.text);
                         }
                     }
+                }
+            }
+        }
+    }
+
+    choice-popup := PopupWindow {
+        x: (root.width - 360px) / 2;
+        y: (root.height - 340px) / 2;
+        width: 360px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: root.choice-title; font-size: 16px; font-weight: 600; color: Theme.text; wrap: word-wrap; }
+                Rectangle {
+                    height: 200px;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    border-radius: 6px;
+                    ListView {
+                        for c[i] in root.choices: Rectangle {
+                            height: 30px;
+                            background: chta.has-hover ? Theme.hover : transparent;
+                            Text { x: 10px; text: c; color: Theme.text; vertical-alignment: center; }
+                            chta := TouchArea { mouse-cursor: pointer; clicked => { choice-popup.close(); root.choice-picked(i); } }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    Button { text: "Annuler"; clicked => { choice-popup.close(); } }
+                }
+            }
+        }
+    }
+
+    protect-popup := PopupWindow {
+        x: (root.width - 460px) / 2;
+        y: (root.height - 480px) / 2;
+        width: 460px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: "Protéger par mot de passe"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Chiffrement AES-256. Laissez le mot de passe d'ouverture vide pour un document lisible par tous mais aux permissions limitées."; color: Theme.text2; wrap: word-wrap; }
+                GridLayout {
+                    spacing: 6px;
+                    Row {
+                        Text { text: "Mot de passe d'ouverture"; color: Theme.text; vertical-alignment: center; }
+                        p-open := LineEdit { input-type: password; }
+                    }
+                    Row {
+                        Text { text: "Confirmation"; color: Theme.text; vertical-alignment: center; }
+                        p-open2 := LineEdit { input-type: password; }
+                    }
+                    Row {
+                        Text { text: "Mot de passe des permissions"; color: Theme.text; vertical-alignment: center; }
+                        p-owner := LineEdit { input-type: password; }
+                    }
+                    Row {
+                        Text { text: "Confirmation"; color: Theme.text; vertical-alignment: center; }
+                        p-owner2 := LineEdit { input-type: password; }
+                    }
+                }
+                Text { text: "Autoriser, sans le mot de passe des permissions :"; color: Theme.text; }
+                p-print := CheckBox { text: "Imprimer"; checked: true; }
+                p-copy := CheckBox { text: "Copier le texte et les images"; checked: true; }
+                p-annotate := CheckBox { text: "Commenter et remplir les formulaires"; checked: true; }
+                p-modify := CheckBox { text: "Modifier et réorganiser les pages"; checked: true; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { protect-popup.close(); } }
+                    Button {
+                        text: "Protéger";
+                        primary: true;
+                        clicked => {
+                            protect-popup.close();
+                            root.protect-run(p-open.text, p-open2.text, p-owner.text, p-owner2.text,
+                                             p-print.checked, p-copy.checked, p-annotate.checked, p-modify.checked);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    owner-popup := PopupWindow {
+        x: (root.width - 400px) / 2;
+        y: (root.height - 200px) / 2;
+        width: 400px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Retirer la protection"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Saisissez le mot de passe des permissions du document."; color: Theme.text2; wrap: word-wrap; }
+                owner-field := LineEdit {
+                    input-type: password;
+                    init => { self.focus(); }
+                    accepted => { owner-popup.close(); root.owner-entered(self.text); }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { owner-popup.close(); } }
+                    Button { text: "OK"; primary: true; clicked => { owner-popup.close(); root.owner-entered(owner-field.text); } }
+                }
+            }
+        }
+    }
+
+    props-popup := PopupWindow {
+        x: (root.width - 520px) / 2;
+        y: (root.height - 520px) / 2;
+        width: 520px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: "Propriétés du document"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: root.prop-info; color: Theme.text2; wrap: word-wrap; }
+                for r[i] in root.prop-rows: HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: r.label; width: 150px; color: Theme.text; vertical-alignment: center; }
+                    LineEdit { text: r.value; edited(t) => { root.prop-edited(i, t); } }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { props-popup.close(); } }
+                    Button { text: "Enregistrer"; primary: true; clicked => { props-popup.close(); root.props-save(); } }
                 }
             }
         }

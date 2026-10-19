@@ -29,11 +29,13 @@ pub(super) enum Gesture {
 /// Texte ajouté en cours d'écriture sur la page ; `xref` : texte existant modifié.
 #[derive(Clone)]
 pub(super) struct Editor {
-    page: usize,
-    rect: Rect,
-    xref: Option<i32>,
-    size: f32,
-    color: Color,
+    pub(super) page: usize,
+    pub(super) rect: Rect,
+    pub(super) xref: Option<i32>,
+    pub(super) size: f32,
+    pub(super) color: Color,
+    /// Champ de formulaire en cours de remplissage.
+    pub(super) field: Option<crate::forms::FieldInfo>,
 }
 
 /// Ce que valide la fenêtre « Note ».
@@ -41,6 +43,7 @@ pub(super) enum NoteTarget {
     Note(usize, (f32, f32)),
     FreeText(usize, Rect),
     Edit(usize, i32),
+    Combo(usize, Rect),
 }
 
 impl App {
@@ -78,6 +81,7 @@ impl App {
             "stamp" => "Cliquez ou tracez l'emplacement du tampon.",
             "text" => "Cliquez ou tracez une bulle, puis écrivez (cliquez à côté pour valider, Échap pour annuler).",
             "image" => "Tracez le cadre de l'image (ou cliquez).",
+            t if t.starts_with("field-") => "Tracez le cadre du champ (ou cliquez). Cliquer un champ existant propose de le supprimer.",
             _ => "",
         };
         if !hint.is_empty() {
@@ -144,6 +148,9 @@ impl App {
     pub(super) fn tool_press(&mut self, page: usize, pt: (f32, f32)) -> bool {
         if self.tab().is_some_and(|t| t.editor.is_some()) {
             self.editor_commit(); // cliquer à côté valide le texte
+            return true;
+        }
+        if self.field_press(page, pt) {
             return true;
         }
         let tool = self.tool.clone();
@@ -241,6 +248,9 @@ impl App {
             Gesture::Draw { page, a, b } => {
                 let r = Rect::new(a.0, a.1, b.0, b.1);
                 match tool.as_str() {
+                    t if t.starts_with("field-") => {
+                        self.field_release(page, a, b);
+                    }
                     "rect" | "ellipse" | "line" | "arrow" => {
                         if !small(a, b) {
                             self.annot_edit(move |pdf| annot::add_shape(pdf, page, &tool, a, b, color, stroke, &author));
@@ -265,7 +275,7 @@ impl App {
                     "text" => {
                         let r = if small(a, b) { Rect::new(a.0, a.1 - size * 0.6, a.0 + 150.0, a.1 + size * 0.8) } else { r };
                         if let Some(tab) = self.tab() {
-                            tab.editor = Some(Editor { page, rect: r, xref: None, size, color: text_color });
+                            tab.editor = Some(Editor { page, rect: r, xref: None, size, color: text_color, field: None });
                         }
                         self.ui().set_editor_text("".into());
                     }
@@ -298,7 +308,7 @@ impl App {
             from_engine(move |app| {
                 let Some((text, size, color)) = style else { return };
                 let Some(tab) = app.tabs.iter_mut().find(|t| t.id == id) else { return };
-                tab.editor = Some(Editor { page: a.page, rect: a.rect, xref: Some(a.xref), size, color });
+                tab.editor = Some(Editor { page: a.page, rect: a.rect, xref: Some(a.xref), size, color, field: None });
                 tab.picked = None;
                 let ui = app.ui();
                 ui.set_editor_text(text.into());
@@ -313,6 +323,10 @@ impl App {
         let author = self.author();
         let Some(e) = self.tab().and_then(|t| t.editor.take()) else { return };
         self.ui().set_editor_visible(false);
+        self.ui().set_editor_single(false);
+        if let Some(f) = e.field {
+            return self.field_commit(f, text.trim_end_matches(['\n', '\r']).to_string());
+        }
         let text = text.trim_end().to_string();
         if text.trim().is_empty() {
             if let Some(xref) = e.xref {
@@ -361,7 +375,7 @@ impl App {
 
     // ----- note, liste des commentaires -------------------------------------------------------
 
-    fn show_note(&mut self, title: &str, text: &str) {
+    pub(super) fn show_note(&mut self, title: &str, text: &str) {
         let ui = self.ui();
         ui.set_note_title(title.into());
         ui.set_note_text(text.into());
@@ -378,6 +392,7 @@ impl App {
             NoteTarget::FreeText(page, r) if !text.trim().is_empty() => {
                 self.annot_edit(move |pdf| annot::add_freetext(pdf, page, r, &text, (0.0, 0.0, 0.0), size, &author));
             }
+            NoteTarget::Combo(page, r) => self.add_combo(page, r, &text),
             NoteTarget::Edit(page, xref) => {
                 self.annot_edit(move |pdf| annot::set_content(pdf, page, xref, &text, &author).map(|_| 0));
             }

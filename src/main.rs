@@ -13,8 +13,10 @@ mod forms;
 mod instance;
 mod layout;
 mod pdf;
+mod print;
 mod security;
 mod settings;
+mod updates;
 
 use std::io::Write;
 use std::path::PathBuf;

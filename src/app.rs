@@ -26,6 +26,8 @@ use crate::{AppWindow, Area, BookmarkData, PageData, RecentData, TabData, ThumbD
 mod edit_ui;
 #[path = "annot_ui.rs"]
 mod annot_ui;
+#[path = "forms_ui.rs"]
+mod forms_ui;
 
 const THUMB_WIDTH: f32 = 110.0;
 const RAIL_WIDTH: f32 = 260.0 + 1.0 + 48.0 + 1.0;
@@ -199,6 +201,7 @@ struct Tab {
     picked: Option<AnnotInfo>,
     gesture: Option<annot_ui::Gesture>,
     editor: Option<annot_ui::Editor>,
+    fields: Vec<crate::forms::FieldInfo>,
 }
 
 struct PendingOpen {
@@ -228,6 +231,9 @@ pub struct App {
     tool: String,
     pending_image: Option<Vec<u8>>,
     pending_note: Option<annot_ui::NoteTarget>,
+    pending_choice: Option<crate::forms::FieldInfo>,
+    props: Vec<String>,
+    pending_installer: Option<PathBuf>,
 }
 
 impl App {
@@ -277,8 +283,9 @@ impl App {
                 let marks = pdf.bookmarks();
                 let signed = pdf.signed;
                 let comments = annot::list(&pdf);
+                let fields = crate::forms::fields(&pdf);
                 docs.insert(id, pdf);
-                from_engine(move |app| app.on_opened(id, path, sizes, marks, signed, comments));
+                from_engine(move |app| app.on_opened(id, path, sizes, marks, signed, comments, fields));
             }
             Err(OpenError::NeedsPassword) => {
                 let tried = password.is_some();
@@ -340,7 +347,7 @@ impl App {
     }
 
     fn on_opened(&mut self, id: DocId, path: PathBuf, sizes: Vec<(f32, f32)>, bookmarks: Vec<Bookmark>,
-                 signed: bool, comments: Vec<AnnotInfo>) {
+                 signed: bool, comments: Vec<AnnotInfo>, fields: Vec<crate::forms::FieldInfo>) {
         let thumbs = self.thumb_model(id, &sizes, 0);
         self.tabs.push(Tab {
             id,
@@ -378,6 +385,7 @@ impl App {
             picked: None,
             gesture: None,
             editor: None,
+            fields,
         });
         self.settings.add_recent(&path);
         self.settings.save();
@@ -577,6 +585,7 @@ impl App {
                 draft: boxes(tab.crop.iter().filter(|(pg, _, _)| *pg == i)
                     .map(|(_, a, b)| Rect::new(a.0, a.1, b.0, b.1)).collect::<Vec<_>>().iter().collect()),
                 marked: boxes(frames.iter().collect()),
+                fields: boxes(tab.fields.iter().filter(|f| f.page == i).map(|f| &f.rect).collect()),
                 path: path.into(),
             });
         }
@@ -1066,6 +1075,9 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         tool: String::new(),
         pending_image: None,
         pending_note: None,
+        pending_choice: None,
+        props: vec![],
+        pending_installer: None,
     };
     app.apply_theme();
     APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -1112,6 +1124,17 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_set_author(|a| with_app(move |app| app.set_author(a.to_string())));
     ui.on_page_double(|p, x, y| with_app(move |app| app.page_double(p.max(0) as usize, x, y)));
     ui.on_note_done(|t| with_app(move |app| app.note_done(t.to_string())));
+    ui.on_choice_picked(|i| with_app(move |app| app.choice_picked(i.max(0) as usize)));
+    ui.on_protect_run(|open, open2, owner, owner2, print, copy, annotate, modify| with_app(move |app| {
+        app.protect_run(open.into(), open2.into(), owner.into(), owner2.into(), [print, copy, annotate, modify])
+    }));
+    ui.on_owner_entered(|pw| with_app(move |app| app.unprotect(Some(pw.to_string()))));
+    ui.on_prop_edited(|i, t| with_app(move |app| app.prop_edited(i.max(0) as usize, t.to_string())));
+    ui.on_props_save(|| with_app(App::props_save));
+    if cfg!(windows) {
+        // Vérification discrète des mises à jour, une fois la fenêtre affichée.
+        Timer::single_shot(Duration::from_secs(4), || with_app(|app| app.check_updates(false)));
+    }
     ui.on_comment_clicked(|i| with_app(move |app| app.comment_clicked(i.max(0) as usize)));
     ui.on_comment_edit(|i| with_app(move |app| app.comment_edit(i.max(0) as usize)));
     ui.on_comment_delete(|i| with_app(move |app| app.comment_delete(i.max(0) as usize)));

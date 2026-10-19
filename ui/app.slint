@@ -13,6 +13,7 @@ export struct PageData {
     hits: [Area], current: [Area], selection: [Area], draft: [Area], marked: [Area], path: string, fields: [Area],
 }
 export struct PropRow { label: string, value: string }
+export struct ChatMessage { user: bool, text: string, pages: [int] }
 export struct CommentData { page: int, label: string, author: string, date: string, content: string, selected: bool }
 export struct ThumbData { index: int, image: image, w: length, h: length, selected: bool, drop-before: bool }
 export struct BookmarkData { title: string, level: int, page: int }
@@ -246,6 +247,18 @@ export component AppWindow inherits Window {
     public function show-owner() { owner-popup.show(); }
     public function show-props() { props-popup.show(); }
     public function show-clean() { clean-popup.show(); }
+    public function show-ocr() { ocr-popup.show(); }
+    public function show-compress() { compress-popup.show(); }
+    public function show-images() { images-popup.show(); }
+    in property <bool> ai-installed;
+    in property <bool> ai-busy;
+    in property <string> ai-progress;
+    in property <[ChatMessage]> chat;
+    callback export-images-run(bool, int, string);
+    callback compress-run(int);
+    callback ocr-run(int, string, bool);
+    callback ai-ask(string);
+    callback chat-page(int);
     callback clean-run(bool, bool, bool, bool);
     in property <bool> editor-single;
     in property <[string]> choices;
@@ -257,6 +270,10 @@ export component AppWindow inherits Window {
     callback owner-entered(string);
     callback prop-edited(int, string);
     callback props-save();
+    function show-assistant() {
+        if (!root.sidebar-visible) { root.toggle-sidebar(); }
+        root.set-rail-tab(3);
+    }
     function show-comments() {
         if (!root.sidebar-visible) { root.toggle-sidebar(); }
         root.set-rail-tab(2);
@@ -435,7 +452,9 @@ export component AppWindow inherits Window {
             vertical-stretch: 1;
             Rectangle {
                 width: 272px;
-                if root.panel == 0: VerticalLayout {
+                if root.panel == 0: Flickable {
+                    content-height: cat.preferred-height;
+                    cat := VerticalLayout {
                     padding: 12px;
                     padding-top: 6px;
                     spacing: 2px;
@@ -448,11 +467,19 @@ export component AppWindow inherits Window {
                     ToolRow { tile: true; icon: Icons.edit; text: "Ajouter du texte et des images"; enabled: root.tabs.length > 0; clicked => { root.set-panel(3); } }
                     ToolRow { tile: true; icon: Icons.note; text: "Commenter"; enabled: root.tabs.length > 0; clicked => { root.set-panel(2); } }
                     ToolRow { tile: true; icon: Icons.field; text: "Formulaires"; enabled: root.tabs.length > 0; clicked => { root.set-panel(4); } }
+                    Section { text: "Convertir et optimiser"; height: 28px; vertical-alignment: center; }
+                    ToolRow { tile: true; icon: Icons.ocr; text: "Reconnaître le texte (OCR)"; enabled: root.tabs.length > 0; clicked => { root.action("ocr"); } }
+                    ToolRow { tile: true; icon: Icons.shrink; text: "Réduire la taille"; enabled: root.tabs.length > 0; clicked => { root.action("compress"); } }
+                    ToolRow { tile: true; icon: Icons.convert; text: "Convertir (Word, images, texte)"; clicked => { root.set-panel(5); } }
+                    ToolRow { tile: true; icon: Icons.archive; text: "Archiver (PDF/A)"; enabled: root.tabs.length > 0; clicked => { root.action("pdfa"); } }
                     Section { text: "Signer et protéger"; height: 28px; vertical-alignment: center; }
                     ToolRow { tile: true; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
                     ToolRow { tile: true; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
+                    Section { text: "Assistant IA"; height: 28px; vertical-alignment: center; }
+                    ToolRow { tile: true; icon: Icons.bot; text: "Résumer, poser des questions"; clicked => { root.show-assistant(); } }
                     Rectangle { height: 12px; }
-                    Text { text: "Les autres outils (convertir, OCR, signer, assistant IA) arrivent dans les prochaines phases."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
+                    Text { text: "Signer et comparer arrivent dans la dernière phase."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
+                    }
                 }
                 if root.panel == 1: Flickable {
                     content-height: org.preferred-height;
@@ -653,6 +680,33 @@ export component AppWindow inherits Window {
                         }
                         Text {
                             text: "Créer : choisissez un type de champ, puis tracez son cadre sur la page (ou cliquez). Un clic sur un champ existant propose de le supprimer.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                    }
+                }
+                if root.panel == 5: Flickable {
+                    content-height: cnv.preferred-height;
+                    cnv := VerticalLayout {
+                        padding: 12px;
+                        padding-top: 6px;
+                        spacing: 2px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            IconButton { icon: Icons.back; label: "Tous les outils"; clicked => { root.set-panel(0); } }
+                            Text { text: "Convertir"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        Section { text: "Depuis ce PDF"; height: 28px; vertical-alignment: center; }
+                        ToolRow { icon: Icons.file; text: "Exporter en Word (.docx)…"; enabled: root.tabs.length > 0; clicked => { root.action("export-word"); } }
+                        ToolRow { icon: Icons.file-image; text: "Exporter en images…"; enabled: root.tabs.length > 0; clicked => { root.action("export-images"); } }
+                        ToolRow { icon: Icons.file; text: "Exporter en texte (.txt)…"; enabled: root.tabs.length > 0; clicked => { root.action("export-text"); } }
+                        Section { text: "Créer un PDF"; height: 28px; vertical-alignment: center; }
+                        ToolRow { icon: Icons.image-plus; text: "Depuis des images…"; clicked => { root.action("from-images"); } }
+                        ToolRow { icon: Icons.file-input; text: "Depuis des documents Office…"; clicked => { root.action("from-office"); } }
+                        Text {
+                            text: "Word : paragraphes et images sont reconstruits ; la mise en page peut différer pour les documents complexes. Office : LibreOffice (gratuit) doit être installé.";
                             color: Theme.text2;
                             wrap: word-wrap;
                             font-size: 12px;
@@ -976,6 +1030,76 @@ export component AppWindow inherits Window {
                                         IconButton { x: parent.width - 38px; y: 6px; icon: Icons.trash; label: "Supprimer"; clicked => { root.comment-delete(i); } }
                                     }
                                 }
+                                if root.rail-tab == 3: VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    padding: 10px;
+                                    spacing: 8px;
+                                    if !root.ai-installed: VerticalLayout {
+                                        spacing: 10px;
+                                        alignment: start;
+                                        Text {
+                                            text: "L'assistant résume le document et répond à vos questions. Il fonctionne hors ligne, sur cet ordinateur : le document n'est envoyé nulle part.\n\nIl faut d'abord télécharger son modèle (2,5 Go, une seule fois). Prévoir 8 Go de mémoire vive.";
+                                            color: Theme.text2;
+                                            wrap: word-wrap;
+                                        }
+                                        PrimaryButton { text: "Télécharger l'assistant"; icon: Icons.bot; enabled: root.ai-progress == ""; clicked => { root.action("ai-download"); } }
+                                        Text { text: root.ai-progress; color: Theme.text2; }
+                                    }
+                                    if root.ai-installed && root.chat.length == 0: Text {
+                                        vertical-stretch: 1;
+                                        text: "Résumez le document ou posez une question : la réponse s'appuie uniquement sur son contenu, pages à l'appui.";
+                                        color: Theme.text2;
+                                        wrap: word-wrap;
+                                    }
+                                    if root.ai-installed && root.chat.length > 0: ListView {
+                                        vertical-stretch: 1;
+                                        for m in root.chat: Rectangle {
+                                            height: msg.preferred-height + 12px;
+                                            msg := VerticalLayout {
+                                                y: 6px;
+                                                padding: 8px;
+                                                spacing: 4px;
+                                                Rectangle {
+                                                    background: m.user ? Theme.accent-soft : Theme.layer-alt;
+                                                    border-radius: 6px;
+                                                    height: body.preferred-height + 12px;
+                                                    body := Text { x: 8px; y: 6px; width: parent.width - 16px; text: m.text; color: Theme.text; wrap: word-wrap; }
+                                                }
+                                                if m.pages.length > 0: HorizontalLayout {
+                                                    spacing: 4px;
+                                                    alignment: start;
+                                                    for p in m.pages: Rectangle {
+                                                        width: plink.preferred-width + 12px;
+                                                        height: 22px;
+                                                        border-radius: 4px;
+                                                        background: pta2.has-hover ? Theme.hover : transparent;
+                                                        plink := Text { text: "p. " + p; color: Theme.accent; vertical-alignment: center; horizontal-alignment: center; }
+                                                        pta2 := TouchArea { mouse-cursor: pointer; clicked => { root.chat-page(p); } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if root.ai-installed: HorizontalLayout {
+                                        spacing: 6px;
+                                        Button { text: "Résumer le document"; enabled: !root.ai-busy && root.tabs.length > 0; clicked => { root.ai-ask(""); } }
+                                        if root.ai-busy: Button { text: "Arrêter"; clicked => { root.action("ai-stop"); } }
+                                    }
+                                    if root.ai-installed: HorizontalLayout {
+                                        spacing: 6px;
+                                        question := LineEdit {
+                                            placeholder-text: "Poser une question…";
+                                            enabled: !root.ai-busy && root.tabs.length > 0;
+                                            accepted(t) => { root.ai-ask(t); self.text = ""; }
+                                        }
+                                        IconButton {
+                                            icon: Icons.send;
+                                            label: "Envoyer";
+                                            enabled: !root.ai-busy && question.text != "";
+                                            clicked => { root.ai-ask(question.text); question.text = ""; }
+                                        }
+                                    }
+                                }
                                 Rectangle { width: 1px; background: Theme.border; }
                                 VerticalLayout {
                                     width: 48px;
@@ -985,6 +1109,7 @@ export component AppWindow inherits Window {
                                     IconButton { x: 8px; icon: Icons.pages; checked: root.rail-tab == 0; label: "Pages"; clicked => { root.set-rail-tab(0); } }
                                     IconButton { x: 8px; icon: Icons.bookmark; checked: root.rail-tab == 1; label: "Signets"; clicked => { root.set-rail-tab(1); } }
                                     IconButton { x: 8px; icon: Icons.list; checked: root.rail-tab == 2; label: "Commentaires"; clicked => { root.set-rail-tab(2); } }
+                                    IconButton { x: 8px; icon: Icons.bot; checked: root.rail-tab == 3; label: "Assistant IA"; clicked => { root.set-rail-tab(3); } }
                                 }
                             }
                         }
@@ -1544,6 +1669,117 @@ export component AppWindow inherits Window {
                         primary: true;
                         clicked => { clean-popup.close(); root.clean-run(c-meta.checked, c-js.checked, c-files.checked, c-thumbs.checked); }
                     }
+                }
+            }
+        }
+    }
+
+    ocr-popup := PopupWindow {
+        x: (root.width - 440px) / 2;
+        y: (root.height - 300px) / 2;
+        width: 440px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Reconnaître le texte (OCR)"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Le texte des pages scannées devient cherchable, sélectionnable et copiable ; l'aspect des pages ne change pas."; color: Theme.text2; wrap: word-wrap; }
+                GridLayout {
+                    spacing: 8px;
+                    Row {
+                        Text { text: "Langue du document"; color: Theme.text; vertical-alignment: center; }
+                        o-lang := ComboBox { model: ["Français et anglais", "Français", "Anglais"]; current-index: 0; }
+                    }
+                    Row {
+                        Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
+                        o-pages := LineEdit { placeholder-text: "toutes (ou 1-5)"; }
+                    }
+                }
+                o-all := CheckBox { text: "Aussi les pages qui contiennent déjà du texte"; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { ocr-popup.close(); } }
+                    Button { text: "Reconnaître"; primary: true; clicked => { ocr-popup.close(); root.ocr-run(o-lang.current-index, o-pages.text, o-all.checked); } }
+                }
+            }
+        }
+    }
+
+    compress-popup := PopupWindow {
+        x: (root.width - 420px) / 2;
+        y: (root.height - 240px) / 2;
+        width: 420px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Réduire la taille"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Crée une copie plus légère ; le document ouvert ne change pas."; color: Theme.text2; wrap: word-wrap; }
+                c-level := ComboBox {
+                    model: ["Sans perte (structure, flux compressés)", "Équilibré (photos à 150 dpi)", "Maximal (photos à 96 dpi)"];
+                    current-index: 1;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { compress-popup.close(); } }
+                    Button { text: "Réduire…"; primary: true; clicked => { compress-popup.close(); root.compress-run(c-level.current-index); } }
+                }
+            }
+        }
+    }
+
+    images-popup := PopupWindow {
+        x: (root.width - 420px) / 2;
+        y: (root.height - 280px) / 2;
+        width: 420px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Exporter en images"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                GridLayout {
+                    spacing: 8px;
+                    Row {
+                        Text { text: "Format"; color: Theme.text; vertical-alignment: center; }
+                        i-format := ComboBox { model: ["PNG (sans perte)", "JPEG (plus léger)"]; current-index: 0; }
+                    }
+                    Row {
+                        Text { text: "Résolution (dpi)"; color: Theme.text; vertical-alignment: center; }
+                        i-dpi := SpinBox { minimum: 36; maximum: 600; value: 150; }
+                    }
+                    Row {
+                        Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
+                        i-pages := LineEdit { placeholder-text: "toutes (ou 1-3, 5)"; }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { images-popup.close(); } }
+                    Button { text: "Exporter…"; primary: true; clicked => { images-popup.close(); root.export-images-run(i-format.current-index == 1, i-dpi.value, i-pages.text); } }
                 }
             }
         }

@@ -121,7 +121,28 @@ impl App {
         }
         let targets = self.targets();
         match name {
-            "escape" => self.escape(),
+            "escape" => {
+                if !self.ocr_stop() {
+                    self.escape();
+                }
+            }
+            "export-word" => self.export_word(),
+            "export-text" => self.export_text(),
+            "from-images" => self.from_images(),
+            "from-office" => self.from_office(),
+            "pdfa" => self.pdfa(),
+            "ai-download" => self.ai_download(),
+            "ai-stop" => self.ai_stop(),
+            "export-images" | "compress" | "ocr" => {
+                if self.current_tab().is_some() {
+                    let ui = self.ui();
+                    match name {
+                        "export-images" => ui.invoke_show_images(),
+                        "compress" => ui.invoke_show_compress(),
+                        _ => ui.invoke_show_ocr(),
+                    }
+                }
+            }
             "editor-commit" => self.editor_commit(),
             "redact-apply" => self.redact_apply(),
             "redact-text" => {

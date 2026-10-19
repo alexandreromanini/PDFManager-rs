@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +32,15 @@ jobs:
           $p = Start-Process target\release\pdfmanager.exe -ArgumentList '--selftest', "`"tests\fixtures\Été déjà vu.pdf`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Autotest en echec (code $($p.ExitCode))" }
           "Taille de l'exe : {0:N1} Mo" -f ((Get-Item target\release\pdfmanager.exe).Length / 1MB)
+
+      - name: Bibliothèques C++ de Windows (déploiement local)
+        run: |
+          # llama.cpp (C++) dépend de msvcp140.dll, absente de certains Windows récents.
+          New-Item -ItemType Directory -Force dist\crt | Out-Null
+          foreach ($d in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
+            Copy-Item "$env:SystemRoot\System32\$d" dist\crt\ -ErrorAction Stop
+          }
+          Get-ChildItem dist\crt | ForEach-Object { "{0} {1:N0} Ko" -f $_.Name, ($_.Length / 1KB) }
 
       - name: Installeur (Inno Setup)
         run: |

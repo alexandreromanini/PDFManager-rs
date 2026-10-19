@@ -169,8 +169,15 @@ impl Pdf {
     pub fn plain_bytes(&self) -> Result<Vec<u8>, String> {
         let mut opts = PdfWriteOptions::default();
         opts.set_encryption(Encryption::None); // par défaut, MuPDF garderait le chiffrement
+        self.bytes_with(opts)
+    }
+
+    /// Écrit avec un autre chiffrement. Sur une copie : MuPDF applique le nouveau
+    /// chiffrement au document écrit lui-même.
+    pub fn bytes_with(&self, opts: PdfWriteOptions) -> Result<Vec<u8>, String> {
+        let copy = open_pdf(&self.bytes()?, self.password.as_deref()).map_err(|_| "copie illisible".to_string())?;
         let mut out = vec![];
-        self.doc.write_to_with_options(&mut out, opts).map_err(|e| e.to_string())?;
+        copy.write_to_with_options(&mut out, opts).map_err(|e| e.to_string())?;
         Ok(out)
     }
 

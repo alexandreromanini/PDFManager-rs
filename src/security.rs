@@ -55,8 +55,7 @@ pub fn protect(pdf: &mut Pdf, open: &str, owner: &str, allow: &[&str]) -> Result
     let owner = if owner.is_empty() { open } else { owner };
     let mut opts = PdfWriteOptions::default();
     opts.set_encryption(Encryption::Aes256).set_user_password(open).set_owner_password(owner).set_permissions(perms);
-    let mut data = vec![];
-    pdf.doc().write_to_with_options(&mut data, opts).map_err(|e| e.to_string())?;
+    let data = pdf.bytes_with(opts)?;
     pdf.swap("Protéger par mot de passe", &data, Some(owner.to_string()))?;
     pdf.signed = false; // chiffrer réécrit tout le fichier
     Ok(())
@@ -149,11 +148,16 @@ mod tests {
         unprotect(&mut user).unwrap();
         let plain = user.bytes_for_disk().unwrap();
         assert!(!Pdf::open(&plain).unwrap().is_encrypted());
+        // Exporter en clair (fusion) ne retire pas la protection du document ouvert.
+        let mut kept = Pdf::open_with_password(&data, Some("ouvrir")).unwrap();
+        kept.plain_bytes().unwrap();
+        assert!(kept.is_encrypted());
+        assert!(Pdf::open(&kept.bytes_for_disk().unwrap()).is_err());
+        let _ = &mut kept;
 
     }
 
     #[test]
-    #[ignore = "à corriger (phase 4) : Ctrl+Z sur protéger / retirer la protection (rechargement et mot de passe)"]
     fn annuler_le_retrait_de_protection() {
         let mut pdf = fixture();
         protect(&mut pdf, "ouvrir", "proprio", &["print"]).unwrap();
@@ -189,6 +193,7 @@ mod tests {
         assert_ne!(metadata(&pdf)[0], "Mon titre été");
     }
 }
+
 
 
 

@@ -3,8 +3,12 @@ name: Build Windows
 on:
   push:
     branches: [main]
+    tags: ["v*"]  # vX.Y.Z : publie aussi une Release (lien de téléchargement direct)
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write  # création des Releases
 
 jobs:
   build:
@@ -42,3 +46,11 @@ jobs:
           name: PDFManager-rs-setup
           path: dist/PDFManager-rs-*-setup.exe
           if-no-files-found: error
+
+      - name: Publier la Release (tag vX.Y.Z)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          gh release create $env:GITHUB_REF_NAME "dist\PDFManager-rs-$v-setup.exe" --title "PDFManager (Rust) $v" --notes "Installeur de la version $v (voir le README pour les fonctions)."

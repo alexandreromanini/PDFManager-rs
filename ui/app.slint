@@ -1,7 +1,7 @@
 // Fenêtre de PDFManager (phase 1 : lecteur). Même organisation que la version Python :
 // barre d'application (accueil, onglets, recherche, thème, menu), accueil, barre du
 // document, vue des pages, rail de droite (vignettes, signets), notifications.
-import { LineEdit, ComboBox, ListView, ScrollView, Button, Palette } from "std-widgets.slint";
+import { LineEdit, ComboBox, ListView, ScrollView, Button, Palette, CheckBox, SpinBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 export { Theme }
 
@@ -10,9 +10,9 @@ export struct RecentData { name: string, folder: string, when: string, path: str
 export struct Area { x: length, y: length, w: length, h: length }
 export struct PageData {
     index: int, x: length, y: length, w: length, h: length, image: image,
-    hits: [Area], current: [Area], selection: [Area],
+    hits: [Area], current: [Area], selection: [Area], draft: [Area],
 }
-export struct ThumbData { index: int, image: image, w: length, h: length }
+export struct ThumbData { index: int, image: image, w: length, h: length, selected: bool, drop-before: bool }
 export struct BookmarkData { title: string, level: int, page: int }
 
 component IconButton inherits Rectangle {
@@ -45,10 +45,12 @@ component IconButton inherits Rectangle {
 component PrimaryButton inherits Rectangle {
     in property <string> text;
     in property <image> icon;
+    in property <bool> enabled: true;
     callback clicked();
     height: 36px;
     border-radius: 6px;
-    background: ta.has-hover ? Theme.accent-hover : Theme.accent;
+    opacity: enabled ? 1 : 0.45;
+    background: enabled && ta.has-hover ? Theme.accent-hover : Theme.accent;
     accessible-role: button;
     accessible-label: text;
     HorizontalLayout {
@@ -59,7 +61,42 @@ component PrimaryButton inherits Rectangle {
         Image { source: root.icon; colorize: Theme.accent-text; width: 16px; y: (parent.height - self.height) / 2; }
         Text { text: root.text; color: Theme.accent-text; font-weight: 600; vertical-alignment: center; }
     }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    ta := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// Ligne d'action du panneau d'outils : icône + libellé (abrégé s'il est trop long).
+component ToolRow inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+    in property <bool> tile: false;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: tile ? 40px : 36px;
+    border-radius: 6px;
+    background: ta.has-hover && enabled ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: text;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 12px;
+        Rectangle {
+            width: root.tile ? 28px : 20px;
+            height: self.width;
+            y: (parent.height - self.height) / 2;
+            border-radius: 6px;
+            background: root.tile ? Theme.accent-soft : transparent;
+            Image { source: root.icon; width: 17px; colorize: !root.enabled ? Theme.text3 : root.tile ? Theme.accent : Theme.icon; }
+        }
+        Text { text: root.text; color: root.enabled ? Theme.text : Theme.text3; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+    }
+    ta := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component Section inherits Text {
+    color: Theme.text2;
+    font-size: 12px;
+    font-weight: 600;
 }
 
 component DocTab inherits Rectangle {
@@ -136,6 +173,23 @@ export component AppWindow inherits Window {
     in property <string> password-file;
     in property <string> password-prompt;
     in property <string> version;
+    in property <bool> modified;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    in property <int> panel;            // 0 : catalogue, 1 : organiser les pages
+    in property <bool> crop-mode;
+    in property <string> selection-info;
+    in property <[string]> merge-names;
+    in-out property <int> merge-index: -1;
+    callback action(string);
+    callback set-panel(int);
+    callback thumb-press(int, bool, bool);
+    callback thumb-drag(int, length, length);
+    callback thumb-release();
+    callback merge-command(string);
+    callback split-run(bool, int, string);
+    public function show-merge() { merge-popup.show(); }
+    public function show-split() { split-popup.show(); }
 
     callback open();
     callback open-recent(string);
@@ -191,6 +245,9 @@ export component AppWindow inherits Window {
                 if (e.text == "w" || e.text == "W") { root.close-tab(root.current-tab); return accept; }
                 if (e.text == "f" || e.text == "F") { root.focus-search(); return accept; }
                 if (e.text == "c" || e.text == "C") { root.copy(); return accept; }
+                if (e.text == "z" || e.text == "Z") { root.action("undo"); return accept; }
+                if (e.text == "y" || e.text == "Y") { root.action("redo"); return accept; }
+                if (e.text == "s" || e.text == "S") { root.action(e.modifiers.shift ? "save-as" : "save"); return accept; }
                 if (e.text == "+" || e.text == "=") { root.zoom-step(1); return accept; }
                 if (e.text == "-") { root.zoom-step(-1); return accept; }
                 if (e.text == "0") { root.fit(2); return accept; }
@@ -198,6 +255,8 @@ export component AppWindow inherits Window {
                 if (e.text == Key.Tab) { root.select-tab(Math.mod(root.current-tab + 1, max(1, root.tabs.length))); return accept; }
                 return reject;
             }
+            if (e.text == Key.Delete) { root.action("delete"); return accept; }
+            if (e.text == Key.Escape && root.crop-mode) { root.action("crop-cancel"); return accept; }
             if (e.text == Key.F3) { root.search-step(e.modifiers.shift ? -1 : 1); return accept; }
             if (e.text == Key.F4) { root.toggle-sidebar(); return accept; }
             if (e.text == Key.F11) { root.toggle-fullscreen(); return accept; }
@@ -267,9 +326,58 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // ----- contenu ------------------------------------------------------------------
+            // ----- panneau d'outils + contenu -------------------------------------------------
+            HorizontalLayout {
+            vertical-stretch: 1;
             Rectangle {
-                vertical-stretch: 1;
+                width: 272px;
+                if root.panel == 0: VerticalLayout {
+                    padding: 12px;
+                    padding-top: 6px;
+                    spacing: 2px;
+                    alignment: start;
+                    Section { text: "Organiser"; height: 28px; vertical-alignment: center; }
+                    ToolRow { tile: true; icon: Icons.organize; text: "Organiser les pages"; enabled: root.tabs.length > 0; clicked => { root.set-panel(1); } }
+                    ToolRow { tile: true; icon: Icons.combine; text: "Fusionner des PDF"; clicked => { root.action("merge"); } }
+                    ToolRow { tile: true; icon: Icons.scissors; text: "Scinder un PDF"; enabled: root.tabs.length > 0; clicked => { root.action("split"); } }
+                    Rectangle { height: 12px; }
+                    Text { text: "Les autres outils (modifier, commenter, formulaires, signer…) arrivent dans les prochaines phases."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
+                }
+                if root.panel == 1: Flickable {
+                    content-height: org.preferred-height;
+                    org := VerticalLayout {
+                        padding: 12px;
+                        padding-top: 6px;
+                        spacing: 2px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            IconButton { icon: Icons.back; label: "Tous les outils"; clicked => { root.set-panel(0); } }
+                            Text { text: "Organiser les pages"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        Text { text: root.selection-info; color: Theme.text2; wrap: word-wrap; height: 36px; vertical-alignment: center; }
+                        ToolRow { icon: Icons.rotate-left; text: "Pivoter à gauche"; clicked => { root.action("rotate-left"); } }
+                        ToolRow { icon: Icons.rotate-right; text: "Pivoter à droite"; clicked => { root.action("rotate-right"); } }
+                        ToolRow { icon: Icons.trash; text: "Supprimer"; clicked => { root.action("delete"); } }
+                        ToolRow { icon: Icons.file-down; text: "Extraire…"; clicked => { root.action("extract"); } }
+                        ToolRow { icon: Icons.file-plus; text: "Insérer une page vierge"; clicked => { root.action("insert-blank"); } }
+                        ToolRow { icon: Icons.file-input; text: "Insérer un PDF…"; clicked => { root.action("insert-pdf"); } }
+                        ToolRow { icon: Icons.image-plus; text: "Insérer des images…"; clicked => { root.action("insert-images"); } }
+                        ToolRow { icon: Icons.crop; text: "Recadrer (tracer la zone à garder)"; clicked => { root.action("crop"); } }
+                        ToolRow { icon: Icons.fit-page; text: "Annuler le recadrage"; clicked => { root.action("reset-crop"); } }
+                        ToolRow { icon: Icons.combine; text: "Fusionner des PDF…"; clicked => { root.action("merge"); } }
+                        ToolRow { icon: Icons.scissors; text: "Scinder le document…"; clicked => { root.action("split"); } }
+                        Text {
+                            text: "Les actions portent sur les vignettes sélectionnées (Ctrl+clic, Maj+clic), sinon sur la page affichée. Glissez une vignette pour déplacer des pages.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
                 background: Theme.layer;
                 border-top-left-radius: 8px;
                 if root.on-home || root.tabs.length == 0: home-page := Flickable {
@@ -349,7 +457,9 @@ export component AppWindow inherits Window {
                             padding-left: 10px;
                             padding-right: 10px;
                             spacing: 2px;
-                            alignment: start;
+                            IconButton { icon: Icons.undo; y: 7px; enabled: root.can-undo; label: "Annuler (Ctrl+Z)"; clicked => { root.action("undo"); } }
+                            IconButton { icon: Icons.redo; y: 7px; enabled: root.can-redo; label: "Rétablir (Ctrl+Y)"; clicked => { root.action("redo"); } }
+                            Rectangle { width: 12px; Separator { } }
                             IconButton { icon: Icons.chevron-left; y: 7px; label: "Page précédente"; clicked => { root.step-page(-1); } }
                             LineEdit {
                                 width: 56px;
@@ -385,6 +495,14 @@ export component AppWindow inherits Window {
                                 model: ["Continu", "Page unique", "Double page"];
                                 current-index: root.mode-index;
                                 selected => { root.mode-selected(self.current-index); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            PrimaryButton {
+                                y: 5px;
+                                text: "Enregistrer";
+                                icon: Icons.save;
+                                enabled: root.modified;
+                                clicked => { root.action("save"); }
                             }
                         }
                     }
@@ -423,8 +541,9 @@ export component AppWindow inherits Window {
                                     for b in p.hits: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.hit; }
                                     for b in p.current: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.current-hit; }
                                     for b in p.selection: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.selection; }
+                                    for b in p.draft: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; border-width: 2px; border-color: Theme.accent; background: #D93A2B1f; }
                                     pta := TouchArea {
-                                        mouse-cursor: text;
+                                        mouse-cursor: root.crop-mode ? MouseCursor.crosshair : MouseCursor.text;
                                         pointer-event(e) => {
                                             if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
                                                 keys.focus();
@@ -453,6 +572,8 @@ export component AppWindow inherits Window {
                                     horizontal-stretch: 1;
                                     for t in root.thumbs: Rectangle {
                                         height: t.h + 30px;
+                                        background: t.selected ? Theme.accent-soft : transparent;
+                                        if t.drop-before: Rectangle { y: 0px; height: 3px; background: Theme.accent; }
                                         VerticalLayout {
                                             padding-top: 6px;
                                             spacing: 4px;
@@ -463,7 +584,7 @@ export component AppWindow inherits Window {
                                                 x: (parent.width - self.width) / 2;
                                                 border-radius: 4px;
                                                 border-width: 2px;
-                                                border-color: t.index == root.current-page ? Theme.accent : transparent;
+                                                border-color: t.selected ? Theme.accent : t.index == root.current-page ? Theme.border-strong : transparent;
                                                 Rectangle {
                                                     width: t.w;
                                                     height: t.h;
@@ -475,7 +596,17 @@ export component AppWindow inherits Window {
                                             }
                                             Text { text: t.index + 1; horizontal-alignment: center; color: Theme.text2; }
                                         }
-                                        TouchArea { mouse-cursor: pointer; clicked => { root.thumb-clicked(t.index); } }
+                                        TouchArea {
+                                            mouse-cursor: pointer;
+                                            pointer-event(e) => {
+                                                if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                                                    keys.focus();
+                                                    root.thumb-press(t.index, e.modifiers.control, e.modifiers.shift);
+                                                }
+                                                if (e.button == PointerEventButton.left && e.kind == PointerEventKind.up) { root.thumb-release(); }
+                                            }
+                                            moved => { if (self.pressed) { root.thumb-drag(t.index, self.mouse-y, self.height); } }
+                                        }
                                     }
                                 }
                                 if root.rail-tab == 1 && root.bookmarks.length == 0: Text {
@@ -532,6 +663,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            }
         }
     }
 
@@ -551,6 +683,11 @@ export component AppWindow inherits Window {
                 padding: 4px;
                 for item[i] in [
                     { label: "Ouvrir…  (Ctrl+O)", action: "open" },
+                    { label: "Enregistrer  (Ctrl+S)", action: "save" },
+                    { label: "Enregistrer sous…  (Ctrl+Maj+S)", action: "save-as" },
+                    { label: "Enregistrer une copie…", action: "save-copy" },
+                    { label: "Annuler  (Ctrl+Z)", action: "undo" },
+                    { label: "Rétablir  (Ctrl+Y)", action: "redo" },
                     { label: "Fermer l'onglet  (Ctrl+W)", action: "close" },
                     { label: "Accueil et fichiers récents", action: "home" },
                     { label: "Panneau latéral  (F4)", action: "sidebar" },
@@ -568,6 +705,8 @@ export component AppWindow inherits Window {
                     mta := TouchArea {
                         clicked => {
                             if (item.action == "open") { root.open(); }
+                            if (item.action == "save" || item.action == "save-as" || item.action == "save-copy"
+                                || item.action == "undo" || item.action == "redo") { root.action(item.action); }
                             if (item.action == "close") { root.close-tab(root.current-tab); }
                             if (item.action == "home") { root.go-home(); }
                             if (item.action == "sidebar") { root.toggle-sidebar(); }
@@ -631,6 +770,88 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { password-popup.close(); root.password-cancelled(); } }
                     Button { text: "Ouvrir"; primary: true; clicked => { password-popup.close(); root.password-entered(password-field.text); } }
+                }
+            }
+        }
+    }
+
+    merge-popup := PopupWindow {
+        x: (root.width - 480px) / 2;
+        y: (root.height - 400px) / 2;
+        width: 480px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Fusionner des PDF"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Ordre de fusion : sélectionnez un fichier pour le déplacer ou le retirer."; color: Theme.text2; wrap: word-wrap; }
+                Rectangle {
+                    height: 200px;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    border-radius: 6px;
+                    ListView {
+                        for name[i] in root.merge-names: Rectangle {
+                            height: 30px;
+                            background: i == root.merge-index ? Theme.accent-soft : transparent;
+                            Text { x: 10px; width: parent.width - 20px; text: name; color: Theme.text; overflow: elide; vertical-alignment: center; }
+                            TouchArea { clicked => { root.merge-index = i; } }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Button { text: "Ajouter…"; clicked => { root.merge-command("add"); } }
+                    Button { text: "Retirer"; enabled: root.merge-index >= 0; clicked => { root.merge-command("remove"); } }
+                    Button { text: "Monter"; enabled: root.merge-index > 0; clicked => { root.merge-command("up"); } }
+                    Button { text: "Descendre"; enabled: root.merge-index >= 0 && root.merge-index < root.merge-names.length - 1; clicked => { root.merge-command("down"); } }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { merge-popup.close(); } }
+                    Button { text: "Fusionner…"; primary: true; enabled: root.merge-names.length >= 2; clicked => { merge-popup.close(); root.merge-command("run"); } }
+                }
+            }
+        }
+    }
+
+    split-popup := PopupWindow {
+        x: (root.width - 440px) / 2;
+        y: (root.height - 280px) / 2;
+        width: 440px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Scinder le document"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                ranges := LineEdit { placeholder-text: "Plages, une par fichier : 1-3, 4-10, 11-"; enabled: !every.checked; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    every := CheckBox { text: "Ou bien toutes les"; }
+                    count := SpinBox { minimum: 1; maximum: 9999; value: 1; width: 100px; enabled: every.checked; }
+                    Text { text: "pages"; color: Theme.text; vertical-alignment: center; }
+                }
+                Text { text: "Le dossier de destination se choisit à l'étape suivante."; color: Theme.text2; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { split-popup.close(); } }
+                    Button { text: "Scinder…"; primary: true; clicked => { split-popup.close(); root.split-run(every.checked, count.value, ranges.text); } }
                 }
             }
         }

@@ -15,8 +15,8 @@ usages.
 |---|---|---|
 | 0 | Essai : ouvrir un PDF, faire défiler ses pages, build Windows | ✅ |
 | 1 | Lecteur complet (voir ci-dessous) | ✅ 0.1.0 |
-| 2 | Enregistrer, annuler/rétablir, organiser les pages | à venir |
-| 3 | Commentaires, ajouter du texte et des images | à venir |
+| 2 | Enregistrer, annuler/rétablir, organiser les pages | ✅ 0.2.0 |
+| 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | à venir |
 | 4 | Formulaires, protection, impression, mises à jour | à venir |
 | 5 | Modifier le texte existant, caviardage | à venir |
 | 6 | OCR, assistant IA, conversions | à venir |
@@ -36,6 +36,19 @@ usages.
 - Mots de passe (3 essais), thème clair / sombre / système, plein écran (F11),
   panneau latéral (F4).
 - Réglages et journal : `%APPDATA%\PDFManager-rs`.
+
+## Fonctions (phase 2)
+
+- Enregistrer (Ctrl+S, confirmation la première fois : le fichier d'origine est remplacé),
+  Enregistrer sous (Ctrl+Maj+S), Enregistrer une copie ; écriture atomique ; avertissement
+  pour un document signé.
+- Annuler / Rétablir (Ctrl+Z / Ctrl+Y) pour chaque modification, 30 étapes.
+- Panneau « Organiser les pages » : pivoter, supprimer, extraire, insérer (page vierge, PDF,
+  images), recadrer (tracer la zone à garder), annuler le recadrage, fusionner, scinder.
+- Vignettes : sélection multiple (Ctrl+clic, Maj+clic), glisser pour déplacer des pages,
+  Suppr pour supprimer.
+- Fermer un onglet ou quitter avec des modifications : Enregistrer / Ne pas enregistrer /
+  Annuler.
 
 ## Installation
 

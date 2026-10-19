@@ -1,7 +1,8 @@
 //! Développement seulement (option `capture`) : rend la fenêtre hors écran et l'écrit en
 //! image PPM, pour vérifier l'interface sans affichage.
 //! `pdfmanager --capture sortie.ppm largeur hauteur thème fichier.pdf… [-- action…]`
-//! Actions : `wait`, `home`, `sidebar`, `zoom+`, `page:N`, `search:texte`, `rail:N`.
+//! Actions : `wait`, `home`, `sidebar`, `zoom+`, `page:N`, `search:texte`, `rail:N`, `panel:N`,
+//! `action:nom` (sans dialogue), `select:N` (Ctrl+clic sur une vignette).
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -82,6 +83,9 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "page" => app::with_app(move |a| a.page_entered(&arg)),
             "search" => app::with_app(move |a| a.search(arg)),
             "rail" => ui.set_rail_tab(arg.parse().unwrap_or(0)),
+            "panel" => app::with_app(move |a| a.set_panel(arg.parse().unwrap_or(0))),
+            "action" => app::with_app(move |a| a.action(&arg)),
+            "select" => app::with_app(move |a| a.thumb_press(arg.parse().unwrap_or(0), true, false)),
             _ => {}
         }
         pump(&queue, 800);

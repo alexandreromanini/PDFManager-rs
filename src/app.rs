@@ -3,7 +3,7 @@
 //! Vit dans le thread de l'interface ; le moteur lui renvoie ses résultats par
 //! `slint::invoke_from_event_loop`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -20,6 +20,9 @@ use crate::layout::{self, Fit, Layout, Mode};
 use crate::pdf::{self, Bookmark, Link, OpenError, Pdf, Rect, Word};
 use crate::settings::Settings;
 use crate::{AppWindow, Area, BookmarkData, PageData, RecentData, TabData, ThumbData};
+
+#[path = "edit_ui.rs"]
+mod edit_ui;
 
 const THUMB_WIDTH: f32 = 110.0;
 const RAIL_WIDTH: f32 = 260.0 + 1.0 + 48.0 + 1.0;
@@ -77,30 +80,35 @@ fn from_view(px: f32, py: f32, (w, h): (f32, f32), rotation: i32, zoom: f32) -> 
 /// Vignettes du rail : la liste ne demande que les lignes visibles ; chacune est alors
 /// rendue en arrière-plan (comme le modèle de vignettes de la version Python).
 pub struct ThumbModel {
-    sizes: Vec<(f32, f32)>,
+    sizes: RefCell<Vec<(f32, f32)>>,
+    version: Cell<u64>,
     images: RefCell<HashMap<usize, Image>>,
     asked: RefCell<HashSet<usize>>,
     notify: ModelNotify,
-    ask: Box<dyn Fn(usize)>,
+    ask: Box<dyn Fn(usize, f32, u64)>, // page, largeur de la page, version du document
+    selected: RefCell<HashSet<usize>>,
+    drop_before: Cell<Option<usize>>,
 }
 
 impl Model for ThumbModel {
     type Data = ThumbData;
 
     fn row_count(&self) -> usize {
-        self.sizes.len()
+        self.sizes.borrow().len()
     }
 
     fn row_data(&self, i: usize) -> Option<ThumbData> {
-        let (w, h) = *self.sizes.get(i)?;
+        let (w, h) = *self.sizes.borrow().get(i)?;
         if !self.images.borrow().contains_key(&i) && self.asked.borrow_mut().insert(i) {
-            (self.ask)(i);
+            (self.ask)(i, w, self.version.get());
         }
         Some(ThumbData {
             index: i as i32,
             image: self.images.borrow().get(&i).cloned().unwrap_or_default(),
             w: THUMB_WIDTH,
             h: (THUMB_WIDTH * h / w).min(THUMB_WIDTH * 3.0),
+            selected: self.selected.borrow().contains(&i),
+            drop_before: self.drop_before.get() == Some(i),
         })
     }
 
@@ -110,13 +118,46 @@ impl Model for ThumbModel {
 }
 
 impl ThumbModel {
-    fn set(&self, i: usize, image: Image) {
-        self.images.borrow_mut().insert(i, image);
-        self.notify.row_changed(i);
+    fn set(&self, version: u64, i: usize, image: Image) {
+        if version == self.version.get() {
+            self.images.borrow_mut().insert(i, image);
+            self.notify.row_changed(i);
+        }
+    }
+
+    /// Document modifié : même liste, contenu refait (remplacer la liste entière dérègle
+    /// la mise en page des lignes quand leurs hauteurs changent).
+    fn reset(&self, sizes: &[(f32, f32)], version: u64) {
+        *self.sizes.borrow_mut() = sizes.to_vec();
+        self.version.set(version);
+        self.images.borrow_mut().clear();
+        self.asked.borrow_mut().clear();
+        self.selected.borrow_mut().clear();
+        self.drop_before.set(None);
+        self.notify.reset();
+    }
+
+    fn set_selected(&self, pages: &[usize]) {
+        let old: Vec<usize> = self.selected.borrow().iter().copied().collect();
+        *self.selected.borrow_mut() = pages.iter().copied().collect();
+        for i in old.into_iter().chain(pages.iter().copied()) {
+            if i < self.row_count() {
+                self.notify.row_changed(i);
+            }
+        }
+    }
+
+    fn set_drop(&self, target: Option<usize>) {
+        let old = self.drop_before.replace(target);
+        for i in old.into_iter().chain(target) {
+            if i < self.row_count() {
+                self.notify.row_changed(i);
+            }
+        }
     }
 }
 
-type RenderKey = (DocId, usize, u32, i32); // document, page, échelle × 1000, rotation
+type RenderKey = (DocId, usize, u32, i32, u64); // document, page, échelle × 1000, rotation, version
 
 struct Tab {
     id: DocId,
@@ -131,7 +172,7 @@ struct Tab {
     current: usize,
     top: f32,
     layout: Layout,
-    images: HashMap<usize, (u32, i32, Image)>,
+    images: HashMap<usize, (u32, i32, u64, Image)>,
     words: HashMap<usize, (Vec<Word>, Vec<Link>)>,
     query: String,
     search_gen: u64,
@@ -140,6 +181,17 @@ struct Tab {
     selection: Option<(usize, Vec<Word>)>,
     press: Option<(usize, (f32, f32), bool)>,
     thumbs: Rc<ThumbModel>,
+    /// Version du contenu : change à chaque modification (rendus à refaire).
+    version: u64,
+    selected: Vec<usize>,
+    anchor: Option<usize>,
+    drag: Option<usize>,
+    crop: Option<(usize, (f32, f32), (f32, f32))>,
+    modified: bool,
+    can_undo: bool,
+    can_redo: bool,
+    signed: bool,
+    overwrite_confirmed: bool,
 }
 
 struct PendingOpen {
@@ -162,6 +214,10 @@ pub struct App {
     pending_words: HashSet<(DocId, usize)>,
     password: Option<PendingOpen>,
     toast_timer: Timer,
+    crop_mode: bool,
+    merge_files: Vec<PathBuf>,
+    close_after_save: Option<DocId>,
+    quit_after_saves: usize,
 }
 
 impl App {
@@ -209,8 +265,9 @@ impl App {
             Ok(pdf) => {
                 let sizes = pdf.page_sizes().to_vec();
                 let marks = pdf.bookmarks();
+                let signed = pdf.signed;
                 docs.insert(id, pdf);
-                from_engine(move |app| app.on_opened(id, path, sizes, marks));
+                from_engine(move |app| app.on_opened(id, path, sizes, marks, signed));
             }
             Err(OpenError::NeedsPassword) => {
                 let tried = password.is_some();
@@ -247,25 +304,33 @@ impl App {
         self.password = None;
     }
 
-    fn on_opened(&mut self, id: DocId, path: PathBuf, sizes: Vec<(f32, f32)>, bookmarks: Vec<Bookmark>) {
+    /// Vignettes d'un document (rendues à la demande) ; refaites après chaque modification.
+    fn thumb_model(&self, id: DocId, sizes: &[(f32, f32)], version: u64) -> Rc<ThumbModel> {
         let engine = self.engine.clone();
         let scale = self.scale();
-        let thumb_sizes = sizes.clone();
-        let ask = Box::new(move |i: usize| {
-            let zoom = THUMB_WIDTH / thumb_sizes[i].0 * scale;
+        let ask = Box::new(move |i: usize, width: f32, version: u64| {
+            let zoom = THUMB_WIDTH / width * scale;
             engine.run(move |docs| {
                 if let Some(Ok(r)) = docs.get(&id).map(|pdf| pdf.render(i, zoom, 0)) {
-                    from_engine(move |app| app.on_thumb(id, i, r));
+                    from_engine(move |app| app.on_thumb(id, version, i, r));
                 }
             });
         });
-        let thumbs = Rc::new(ThumbModel {
-            sizes: sizes.clone(),
+        Rc::new(ThumbModel {
+            sizes: RefCell::new(sizes.to_vec()),
+            version: Cell::new(version),
             images: RefCell::default(),
             asked: RefCell::default(),
             notify: ModelNotify::default(),
             ask,
-        });
+            selected: RefCell::default(),
+            drop_before: Cell::new(None),
+        })
+    }
+
+    fn on_opened(&mut self, id: DocId, path: PathBuf, sizes: Vec<(f32, f32)>, bookmarks: Vec<Bookmark>,
+                 signed: bool) {
+        let thumbs = self.thumb_model(id, &sizes, 0);
         self.tabs.push(Tab {
             id,
             name: file_name(&path),
@@ -288,6 +353,16 @@ impl App {
             selection: None,
             press: None,
             thumbs,
+            version: 0,
+            selected: vec![],
+            anchor: None,
+            drag: None,
+            crop: None,
+            modified: false,
+            can_undo: false,
+            can_redo: false,
+            signed,
+            overwrite_confirmed: false,
         });
         self.settings.add_recent(&path);
         self.settings.save();
@@ -305,7 +380,7 @@ impl App {
         self.sync_document();
     }
 
-    pub fn close_tab(&mut self, i: usize) {
+    pub fn close_tab_now(&mut self, i: usize) {
         if i >= self.tabs.len() {
             return;
         }
@@ -330,13 +405,17 @@ impl App {
     fn sync_tabs(&mut self) {
         let ui = self.ui();
         let tabs: Vec<TabData> = self.tabs.iter()
-            .map(|t| TabData { name: t.name.clone().into(), path: t.path.to_string_lossy().into_owned().into() })
+            .map(|t| TabData {
+                name: format!("{}{}", t.name, if t.modified { " *" } else { "" }).into(),
+                path: t.path.to_string_lossy().into_owned().into(),
+            })
             .collect();
         ui.set_tabs(ModelRc::new(VecModel::from(tabs)));
         ui.set_current_tab(self.current as i32);
         ui.set_on_home(self.on_home || self.tabs.is_empty());
         let title = self.tab().map(|t| t.name.clone()).unwrap_or_default();
         ui.set_doc_title(title.into());
+        self.sync_state();
         ui.set_recent(ModelRc::new(VecModel::from(self.recent_rows())));
     }
 
@@ -451,7 +530,7 @@ impl App {
         let vh = self.viewport.1.max(200.0);
         let ui = self.ui();
         let Some(tab) = (if self.on_home { None } else { self.tabs.get_mut(self.current) }) else { return };
-        let key = ((tab.zoom * scale * 1000.0).round() as u32, tab.rotation);
+        let key = ((tab.zoom * scale * 1000.0).round() as u32, tab.rotation, tab.version);
         let shown = layout::visible(&tab.layout, tab.top, vh, vh / 2.0);
         let mut wanted = HashSet::new();
         let mut rows = vec![];
@@ -460,8 +539,8 @@ impl App {
             let i = p.index;
             let size = tab.sizes[i];
             let image = tab.images.get(&i);
-            if image.is_none_or(|(s, r, _)| (*s, *r) != key) {
-                wanted.insert((tab.id, i, key.0, key.1));
+            if image.is_none_or(|(s, r, v, _)| (*s, *r, *v) != key) {
+                wanted.insert((tab.id, i, key.0, key.1, key.2));
             }
             let boxes = |rects: Vec<&Rect>| -> ModelRc<Area> {
                 ModelRc::new(VecModel::from(rects.into_iter().map(|r| to_view(r, size, tab.rotation, tab.zoom)).collect::<Vec<_>>()))
@@ -472,11 +551,13 @@ impl App {
                 y: p.y,
                 w: p.w,
                 h: p.h,
-                image: image.map(|(_, _, img)| img.clone()).unwrap_or_default(),
+                image: image.map(|(_, _, _, img)| img.clone()).unwrap_or_default(),
                 hits: boxes(tab.hits.iter().filter(|(pg, _)| *pg == i).map(|(_, r)| r).collect()),
                 current: boxes(current_hit.iter().filter(|(pg, _)| *pg == i).map(|(_, r)| r).collect()),
                 selection: boxes(tab.selection.iter().filter(|(pg, _)| *pg == i)
                     .flat_map(|(_, ws)| ws.iter().map(|w| &w.rect)).collect()),
+                draft: boxes(tab.crop.iter().filter(|(pg, _, _)| *pg == i)
+                    .map(|(_, a, b)| Rect::new(a.0, a.1, b.0, b.1)).collect::<Vec<_>>().iter().collect()),
             });
         }
         // Les images loin de la vue sont oubliées : la mémoire reste bornée.
@@ -504,15 +585,18 @@ impl App {
     fn on_rendered(&mut self, k: RenderKey, r: pdf::Rendered) {
         self.pending.remove(&k);
         let Some(tab) = self.tabs.iter_mut().find(|t| t.id == k.0) else { return };
-        tab.images.insert(k.1, (k.2, k.3, to_image(r)));
+        if tab.version != k.4 {
+            return; // rendu d'avant une modification
+        }
+        tab.images.insert(k.1, (k.2, k.3, k.4, to_image(r)));
         if self.tab().is_some_and(|t| t.id == k.0) {
             self.update_view();
         }
     }
 
-    fn on_thumb(&mut self, id: DocId, i: usize, r: pdf::Rendered) {
+    fn on_thumb(&mut self, id: DocId, version: u64, i: usize, r: pdf::Rendered) {
         if let Some(tab) = self.tabs.iter().find(|t| t.id == id) {
-            tab.thumbs.set(i, to_image(r));
+            tab.thumbs.set(version, i, to_image(r));
         }
     }
 
@@ -715,6 +799,13 @@ impl App {
 
     pub fn page_press(&mut self, page: usize, x: f32, y: f32) {
         let Some(pt) = self.page_point(page, x, y) else { return };
+        if self.crop_mode {
+            if let Some(tab) = self.tab() {
+                tab.crop = Some((page, pt, pt));
+            }
+            self.update_view();
+            return;
+        }
         self.ensure_words(page);
         if let Some(tab) = self.tab() {
             tab.press = Some((page, pt, false));
@@ -725,7 +816,16 @@ impl App {
 
     pub fn page_drag(&mut self, page: usize, x: f32, y: f32) {
         let Some(pt) = self.page_point(page, x, y) else { return };
+        let crop_mode = self.crop_mode;
         let Some(tab) = self.tab() else { return };
+        if crop_mode {
+            if let Some((p, a, _)) = tab.crop.filter(|c| c.0 == page) {
+                let (w, h) = tab.sizes[p];
+                tab.crop = Some((p, a, (pt.0.clamp(0.0, w), pt.1.clamp(0.0, h))));
+                self.update_view();
+            }
+            return;
+        }
         let Some((start_page, start, _)) = tab.press else { return };
         if start_page != page {
             return; // ponytail : sélection limitée à la page de départ, comme en Python
@@ -739,6 +839,10 @@ impl App {
     }
 
     pub fn page_release(&mut self, page: usize, x: f32, y: f32) {
+        if self.crop_mode {
+            self.crop_done();
+            return;
+        }
         let Some(pt) = self.page_point(page, x, y) else { return };
         let Some(tab) = self.tab() else { return };
         let click = matches!(tab.press.take(), Some((p, _, false)) if p == page);
@@ -924,6 +1028,10 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         pending_words: HashSet::new(),
         password: None,
         toast_timer: Timer::default(),
+        crop_mode: false,
+        merge_files: vec![],
+        close_after_save: None,
+        quit_after_saves: 0,
     };
     app.apply_theme();
     APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -932,7 +1040,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_open(|| with_app(App::open_dialog));
     ui.on_open_recent(|p| with_app(move |a| a.open_path(PathBuf::from(p.as_str()))));
     ui.on_select_tab(|i| with_app(move |a| a.select_tab(i.max(0) as usize)));
-    ui.on_close_tab(|i| with_app(move |a| a.close_tab(i.max(0) as usize)));
+    ui.on_close_tab(|i| with_app(move |a| a.request_close_tab(i.max(0) as usize)));
     ui.on_go_home(|| with_app(App::go_home));
     ui.on_toggle_theme(|| with_app(App::toggle_theme));
     ui.on_set_theme(|m| with_app(move |a| a.set_theme(m.as_str())));
@@ -960,11 +1068,26 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     });
     ui.on_toggle_sidebar(|| with_app(App::toggle_sidebar));
     ui.on_toggle_fullscreen(|| with_app(|a| a.toggle_fullscreen()));
-    ui.on_quit(|| {
-        let _ = slint::quit_event_loop();
-    });
+    ui.on_quit(|| with_app(App::quit));
     ui.on_password_entered(|pw| with_app(move |a| a.password_entered(pw.to_string())));
     ui.on_password_cancelled(|| with_app(App::password_cancelled));
+    ui.on_action(|a| with_app(move |app| app.action(a.as_str())));
+    ui.on_set_panel(|p| with_app(move |app| app.set_panel(p)));
+    ui.on_thumb_press(|i, ctrl, shift| with_app(move |app| app.thumb_press(i.max(0) as usize, ctrl, shift)));
+    ui.on_thumb_drag(|i, y, h| with_app(move |app| app.thumb_drag(i.max(0) as usize, y, h)));
+    ui.on_thumb_release(|| with_app(App::thumb_release));
+    ui.on_merge_command(|c| with_app(move |app| app.merge_command(c.as_str())));
+    ui.on_split_run(|every, n, ranges| with_app(move |app| app.split_run(every, n.max(1) as usize, ranges.to_string())));
+    ui.window().on_close_requested(|| {
+        // Modifications non enregistrées : on demande d'abord (la fenêtre reste ouverte).
+        let unsaved = APP.with(|c| c.try_borrow().map(|a| a.as_ref().is_some_and(App::has_unsaved)).unwrap_or(true));
+        if unsaved {
+            with_app(App::quit);
+            slint::CloseRequestResponse::KeepWindowShown
+        } else {
+            slint::CloseRequestResponse::HideWindow
+        }
+    });
 
     use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
     ui.window().on_winit_window_event(|_, event| {

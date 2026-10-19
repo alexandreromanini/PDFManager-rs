@@ -164,6 +164,13 @@ impl Pdf {
         Ok(out)
     }
 
+    /// Contenu déchiffré (pour fusionner ou insérer dans un autre document).
+    pub fn plain_bytes(&self) -> Result<Vec<u8>, String> {
+        let mut out = vec![];
+        self.doc.write_to(&mut out).map_err(|e| e.to_string())?;
+        Ok(out)
+    }
+
     /// Version à écrire sur le disque : objets inutiles retirés (pages supprimées…).
     pub fn bytes_for_disk(&self) -> Result<Vec<u8>, String> {
         let copy = Pdf::open_with_password(&self.bytes()?, self.password.as_deref())

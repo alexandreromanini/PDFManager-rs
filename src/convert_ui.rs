@@ -13,20 +13,7 @@ use crate::engine::DocId;
 use crate::{convert, edit, ocr, ChatMessage};
 
 fn save_as(title: &str, suggested: &Path, filter: (&str, &[&str])) -> Option<PathBuf> {
-    let mut d = rfd::FileDialog::new().set_title(title).add_filter(filter.0, filter.1);
-    if let Some(dir) = suggested.parent() {
-        d = d.set_directory(dir);
-    }
-    if let Some(name) = suggested.file_name() {
-        d = d.set_file_name(name.to_string_lossy());
-    }
-    let path = d.save_file()?;
-    let ext = filter.1[0];
-    Some(if path.extension().is_some_and(|e| filter.1.iter().any(|x| e.eq_ignore_ascii_case(x))) {
-        path
-    } else {
-        PathBuf::from(format!("{}.{ext}", path.display()))
-    })
+    crate::dialogs::save_file(title, filter, suggested)
 }
 
 fn mb(n: usize) -> String {
@@ -90,8 +77,7 @@ impl App {
             Ok(p) => p,
             Err(e) => return self.error(&e),
         };
-        let Some(folder) = rfd::FileDialog::new().set_title("Dossier des images")
-            .set_directory(path.parent().unwrap_or(Path::new("."))).pick_folder() else { return };
+        let Some(folder) = crate::dialogs::pick_folder("Dossier des images", path.parent()) else { return };
         let ext = if jpeg { "jpg" } else { "png" };
         let targets = convert::image_targets(&stem, &pages, count, &folder, ext);
         let existing = targets.iter().filter(|t| t.exists()).count();
@@ -121,8 +107,10 @@ impl App {
     // ----- créer un PDF --------------------------------------------------------------------
 
     pub(super) fn from_images(&mut self) {
-        let Some(files) = rfd::FileDialog::new().set_title("Images à rassembler en PDF")
-            .add_filter("Images", &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"]).pick_files() else { return };
+        let files = crate::dialogs::pick_files("Images à rassembler en PDF", ("Images", &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"]), None);
+        if files.is_empty() {
+            return;
+        }
         let mut images = vec![];
         for f in &files {
             match std::fs::read(f) {
@@ -146,8 +134,10 @@ impl App {
             return self.error(&format!("LibreOffice (gratuit) est nécessaire pour convertir les documents Office ; il n'a \
                                         pas été trouvé sur cet ordinateur.\n\n{}", convert::LO_URL));
         };
-        let Some(files) = rfd::FileDialog::new().set_title("Documents à convertir en PDF")
-            .add_filter("Documents Office", convert::OFFICE).pick_files() else { return };
+        let files = crate::dialogs::pick_files("Documents à convertir en PDF", ("Documents Office", convert::OFFICE), None);
+        if files.is_empty() {
+            return;
+        }
         let targets: Vec<PathBuf> = files.iter().map(|f| f.with_extension("pdf")).collect();
         let existing = targets.iter().filter(|t| t.exists()).count();
         if existing > 0 && !super::edit_ui::ask("Convertir en PDF", &format!("{existing} PDF existe(nt) déjà à côté des documents. Les remplacer ?")) {

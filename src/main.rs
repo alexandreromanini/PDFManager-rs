@@ -10,6 +10,7 @@ mod assistant;
 mod capture;
 mod compare;
 mod convert;
+mod dialogs;
 mod edit;
 mod engine;
 mod fonts;

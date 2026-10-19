@@ -107,8 +107,7 @@ impl App {
     }
 
     pub fn sig_import(&mut self) {
-        let Some(path) = rfd::FileDialog::new().set_title("Image de la signature")
-            .add_filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "tif", "tiff", "webp"]).pick_file() else { return };
+        let Some(path) = crate::dialogs::pick_file("Image de la signature", ("Images", &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"]), None) else { return };
         match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| signature::transparent_white(&d, 200)) {
             Ok(png) => {
                 self.ui().set_sig_preview(png_image(&png).unwrap_or_default());
@@ -175,11 +174,8 @@ impl App {
     }
 
     pub fn pick_pfx(&mut self) {
-        let mut d = rfd::FileDialog::new().set_title("Certificat de signature").add_filter("Certificat (.pfx, .p12)", &["pfx", "p12"]);
-        if let Some(dir) = Path::new(&self.settings.pfx).parent() {
-            d = d.set_directory(dir);
-        }
-        if let Some(p) = d.pick_file() {
+        let dir = Path::new(&self.settings.pfx).parent().map(Path::to_path_buf);
+        if let Some(p) = crate::dialogs::pick_file("Certificat de signature", ("Certificat (.pfx, .p12)", &["pfx", "p12"]), dir.as_deref()) {
             self.ui().set_pfx_path(p.to_string_lossy().into_owned().into());
         }
     }
@@ -200,12 +196,8 @@ impl App {
         let Some(tab) = self.tab() else { return };
         let (id, path) = (tab.id, tab.path.clone());
         let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let mut d = rfd::FileDialog::new().set_title("Enregistrer le document signé").add_filter("Documents PDF", &["pdf"])
-            .set_file_name(format!("{stem} - signé.pdf"));
-        if let Some(dir) = path.parent() {
-            d = d.set_directory(dir);
-        }
-        let Some(out) = d.save_file() else { return };
+        let Some(out) = crate::dialogs::save_file("Enregistrer le document signé", ("Documents PDF", &["pdf"]),
+                                                  &path.with_file_name(format!("{stem} - signé.pdf"))) else { return };
         let png = image.checked_sub(1).and_then(|k| saved_signatures().get(k).cloned()).and_then(|p| std::fs::read(p).ok());
         let place = match target {
             SignTarget::Field(n) => Place::Field(n),
@@ -317,11 +309,7 @@ impl App {
     pub(super) fn compare_start(&mut self) {
         let Some(tab) = self.tab() else { return };
         let a_path = tab.path.clone();
-        let mut d = rfd::FileDialog::new().set_title("Comparer avec…").add_filter("Documents PDF", &["pdf"]);
-        if let Some(dir) = a_path.parent() {
-            d = d.set_directory(dir);
-        }
-        let Some(b_path) = d.pick_file() else { return };
+        let Some(b_path) = crate::dialogs::pick_file("Comparer avec…", ("Documents PDF", &["pdf"]), a_path.parent()) else { return };
         self.compare_with(b_path);
     }
 

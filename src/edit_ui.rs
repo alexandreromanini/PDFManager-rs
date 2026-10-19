@@ -40,35 +40,10 @@ fn state_of(pdf: &Pdf) -> Edited {
     }
 }
 
-pub(super) fn ask(title: &str, text: &str) -> bool {
-    rfd::MessageDialog::new()
-        .set_title(title)
-        .set_description(text)
-        .set_buttons(rfd::MessageButtons::YesNo)
-        .show()
-        == rfd::MessageDialogResult::Yes
-}
-
-/// Ajoute « .pdf » si l'utilisateur ne l'a pas tapé.
-fn with_pdf_extension(path: PathBuf) -> PathBuf {
-    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
-        path
-    } else {
-        let mut name = path.into_os_string();
-        name.push(".pdf");
-        PathBuf::from(name)
-    }
-}
+pub(super) use crate::dialogs::ask;
 
 fn save_dialog(title: &str, suggested: &Path) -> Option<PathBuf> {
-    let mut d = rfd::FileDialog::new().set_title(title).add_filter("Documents PDF", &["pdf"]);
-    if let Some(dir) = suggested.parent() {
-        d = d.set_directory(dir);
-    }
-    if let Some(name) = suggested.file_name() {
-        d = d.set_file_name(name.to_string_lossy());
-    }
-    d.save_file().map(with_pdf_extension)
+    crate::dialogs::save_file(title, ("Documents PDF", &["pdf"]), suggested)
 }
 
 fn write_error(target: &Path, e: &std::io::Error) -> String {
@@ -238,10 +213,8 @@ impl App {
             from_engine(move |app| match result {
                 Ok((state, select, message)) => {
                     app.on_edited(id, state, select);
-                    // (Captures d'écran hors écran : pas de fenêtre système, qui bloquerait.)
-                    if message.contains('\n') && std::env::var_os("PDFMANAGER_CAPTURE").is_none() {
-                        rfd::MessageDialog::new().set_title("PDFManager").set_description(&message)
-                            .set_level(rfd::MessageLevel::Info).show();
+                    if message.contains('\n') {
+                        crate::dialogs::info("PDFManager", &message);
                     } else if !message.is_empty() {
                         app.toast(&message);
                     }
@@ -371,8 +344,7 @@ impl App {
         if self.current_tab().is_none() {
             return;
         }
-        let Some(path) = rfd::FileDialog::new().set_title("Insérer un PDF").add_filter("Documents PDF", &["pdf"]).pick_file()
-        else { return };
+        let Some(path) = crate::dialogs::pick_file("Insérer un PDF", ("Documents PDF", &["pdf"]), None) else { return };
         let at = self.insert_at();
         let name = file_name(&path);
         // ponytail : le PDF inséré est lu sur le disque (un onglet ouvert dessus avec des
@@ -388,8 +360,10 @@ impl App {
         if self.current_tab().is_none() {
             return;
         }
-        let Some(paths) = rfd::FileDialog::new().set_title("Insérer des images").add_filter("Images", IMAGES).pick_files()
-        else { return };
+        let paths = crate::dialogs::pick_files("Insérer des images", ("Images", IMAGES), None);
+        if paths.is_empty() {
+            return;
+        }
         let mut images = vec![];
         for p in &paths {
             match std::fs::read(p) {
@@ -463,8 +437,7 @@ impl App {
         let n = self.merge_files.len() as i32;
         match command {
             "add" => {
-                let picked = rfd::FileDialog::new().set_title("Ajouter des PDF").add_filter("Documents PDF", &["pdf"]).pick_files();
-                self.merge_files.extend(picked.unwrap_or_default());
+                self.merge_files.extend(crate::dialogs::pick_files("Ajouter des PDF", ("Documents PDF", &["pdf"]), None));
             }
             "remove" if (0..n).contains(&i) => {
                 self.merge_files.remove(i as usize);
@@ -523,8 +496,7 @@ impl App {
             Ok(g) => g,
             Err(e) => return self.error(&e),
         };
-        let Some(folder) = rfd::FileDialog::new().set_title("Dossier de destination")
-            .set_directory(tab.path.parent().unwrap_or(Path::new("."))).pick_folder() else { return };
+        let Some(folder) = crate::dialogs::pick_folder("Dossier de destination", tab.path.parent()) else { return };
         let stem = tab.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let targets: Vec<PathBuf> = groups.iter()
             .map(|g| folder.join(format!("{stem} - pages {}.pdf", edit::format_pages(g))))
@@ -648,18 +620,16 @@ impl App {
         if !tab.modified {
             return self.close_tab_now(i);
         }
-        let answer = rfd::MessageDialog::new()
-            .set_title("Modifications non enregistrées")
-            .set_description(format!("« {} » a été modifié. Enregistrer les modifications ?", tab.name))
-            .set_buttons(rfd::MessageButtons::YesNoCancelCustom("Enregistrer".into(), "Ne pas enregistrer".into(), "Annuler".into()))
-            .show();
+        let answer = crate::dialogs::choose("Modifications non enregistrées",
+            &format!("« {} » a été modifié. Enregistrer les modifications ?", tab.name),
+            ["Enregistrer", "Ne pas enregistrer", "Annuler"]);
         match answer {
-            rfd::MessageDialogResult::Custom(c) if c == "Enregistrer" => {
+            0 => {
                 let (id, path) = (tab.id, tab.path.clone());
                 self.close_after_save = Some(id);
                 self.write(id, path, false); // « Enregistrer » vaut confirmation
             }
-            rfd::MessageDialogResult::Custom(c) if c == "Ne pas enregistrer" => self.close_tab_now(i),
+            1 => self.close_tab_now(i),
             _ => {}
         }
     }
@@ -673,19 +643,17 @@ impl App {
             return;
         }
         let names: Vec<String> = unsaved.iter().map(|u| format!("« {} »", u.2)).collect();
-        let answer = rfd::MessageDialog::new()
-            .set_title("Modifications non enregistrées")
-            .set_description(format!("Ces documents ont été modifiés : {}.\nEnregistrer avant de quitter ?", names.join(", ")))
-            .set_buttons(rfd::MessageButtons::YesNoCancelCustom("Tout enregistrer".into(), "Quitter sans enregistrer".into(), "Annuler".into()))
-            .show();
+        let answer = crate::dialogs::choose("Modifications non enregistrées",
+            &format!("Ces documents ont été modifiés : {}.\nEnregistrer avant de quitter ?", names.join(", ")),
+            ["Tout enregistrer", "Quitter sans enregistrer", "Annuler"]);
         match answer {
-            rfd::MessageDialogResult::Custom(c) if c == "Tout enregistrer" => {
+            0 => {
                 self.quit_after_saves = unsaved.len();
                 for (id, path, _) in unsaved {
                     self.write(id, path, false);
                 }
             }
-            rfd::MessageDialogResult::Custom(c) if c == "Quitter sans enregistrer" => {
+            1 => {
                 self.exit_now();
             }
             _ => self.exit_cancelled(),

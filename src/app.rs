@@ -268,11 +268,7 @@ impl App {
 
     pub fn open_dialog(&mut self) {
         let start = self.settings.recent.first().and_then(|p| Path::new(p).parent().map(Path::to_path_buf));
-        let mut dialog = rfd::FileDialog::new().set_title("Ouvrir des PDF").add_filter("Documents PDF", &["pdf"]);
-        if let Some(dir) = start {
-            dialog = dialog.set_directory(dir);
-        }
-        for path in dialog.pick_files().unwrap_or_default() {
+        for path in crate::dialogs::pick_files("Ouvrir des PDF", ("Documents PDF", &["pdf"]), start.as_deref()) {
             self.open_path(path);
         }
     }
@@ -929,12 +925,7 @@ impl App {
                                  PDFManager ne l'ouvre pas, par sécurité.\n\n{uri}"));
             return;
         }
-        let yes = rfd::MessageDialog::new()
-            .set_title("Ouvrir le lien")
-            .set_description(format!("Ouvrir {uri} ?"))
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .show();
-        if yes == rfd::MessageDialogResult::Yes {
+        if crate::dialogs::ask("Ouvrir le lien", &format!("Ouvrir {uri} ?")) {
             let _ = open::that(&uri);
         }
     }
@@ -1003,6 +994,9 @@ impl App {
     }
 
     pub fn toast(&mut self, text: &str) {
+        if std::env::var_os("PDFMANAGER_CAPTURE").is_some() {
+            eprintln!("NOTE : {text}");
+        }
         let ui = self.ui();
         ui.set_toast_text(text.into());
         ui.set_toast_visible(true);
@@ -1016,12 +1010,7 @@ impl App {
     }
 
     fn error(&mut self, text: &str) {
-        crate::log(text);
-        rfd::MessageDialog::new()
-            .set_level(rfd::MessageLevel::Error)
-            .set_title("PDFManager")
-            .set_description(text)
-            .show();
+        crate::dialogs::error(text);
     }
 }
 

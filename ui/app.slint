@@ -261,6 +261,7 @@ export component AppWindow inherits Window {
     callback split-run(bool, int, string);
     public function show-merge() { merge-popup.show(); }
     public function show-split() { split-popup.show(); }
+    public function show-menu() { menu.show(); }
     public function show-note() { note-popup.show(); }
     public function show-header() { header-popup.show(); }
     public function show-watermark() { watermark-popup.show(); }
@@ -918,9 +919,6 @@ export component AppWindow inherits Window {
                             IconButton { icon: Icons.zoom-in; y: 7px; label: "Zoom avant (Ctrl++)"; clicked => { root.zoom-step(1); } }
                             if bar.width >= 660px: IconButton { icon: Icons.fit-width; y: 7px; label: "Ajuster à la largeur (Ctrl+2)"; clicked => { root.fit(1); } }
                             if bar.width >= 660px: IconButton { icon: Icons.fit-page; y: 7px; label: "Ajuster à la page (Ctrl+0)"; clicked => { root.fit(2); } }
-                            if bar.width >= 740px: Rectangle { width: 12px; Separator { } }
-                            if bar.width >= 740px: IconButton { icon: Icons.rotate-left; y: 7px; label: "Pivoter l'affichage à gauche"; clicked => { root.rotate(-90); } }
-                            if bar.width >= 740px: IconButton { icon: Icons.rotate-right; y: 7px; label: "Pivoter l'affichage à droite"; clicked => { root.rotate(90); } }
                             if bar.width >= 900px: Rectangle { width: 12px; Separator { } }
                             if bar.width >= 900px: ComboBox {
                                 width: 150px;
@@ -1294,9 +1292,11 @@ export component AppWindow inherits Window {
 
     // ----- menu ⋯ -----------------------------------------------------------------------------
     menu := PopupWindow {
-        x: root.width - 260px;
+        x: root.width - 312px;
         y: 48px;
-        width: 248px;
+        width: 300px;
+        // défile si la fenêtre est moins haute que le menu
+        height: min(menu-list.preferred-height, root.height - 56px);
         Rectangle {
             background: Theme.layer;
             border-radius: 8px;
@@ -1304,7 +1304,9 @@ export component AppWindow inherits Window {
             border-color: Theme.border;
             drop-shadow-blur: 12px;
             drop-shadow-color: #00000040;
-            VerticalLayout {
+            Flickable {
+            content-height: menu-list.preferred-height;
+            menu-list := VerticalLayout {
                 padding: 4px;
                 for item[i] in [
                     { label: "Ouvrir…  (Ctrl+O)", action: "open" },
@@ -1319,6 +1321,7 @@ export component AppWindow inherits Window {
                     { label: "Accueil et fichiers récents", action: "home" },
                     { label: "Panneau latéral  (F4)", action: "sidebar" },
                     { label: "Plein écran  (F11)", action: "fullscreen" },
+                    { label: "Pivoter l'affichage (sans modifier le fichier)", action: "rotate-view" },
                     { label: "Thème : système", action: "theme-system" },
                     { label: "Thème : clair", action: "theme-light" },
                     { label: "Thème : sombre", action: "theme-dark" },
@@ -1340,6 +1343,7 @@ export component AppWindow inherits Window {
                             if (item.action == "home") { root.go-home(); }
                             if (item.action == "sidebar") { root.toggle-sidebar(); }
                             if (item.action == "fullscreen") { root.toggle-fullscreen(); }
+                            if (item.action == "rotate-view") { root.rotate(90); }
                             if (item.action == "theme-system") { root.set-theme("system"); }
                             if (item.action == "theme-light") { root.set-theme("light"); }
                             if (item.action == "theme-dark") { root.set-theme("dark"); }
@@ -1348,6 +1352,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -152,6 +152,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-color" => app::with_app(move |a| a.pick_color(true, arg.parse().unwrap_or(0))),
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
+            "menu" => ui.invoke_show_menu(),
             "password" => app::with_app(move |a| a.password_entered(arg)),
             "password-cancel" => app::with_app(|a| a.password_cancelled()),
             "step" => app::with_app(move |a| a.step_page(arg.parse().unwrap_or(1))),

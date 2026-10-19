@@ -3,6 +3,7 @@
 
 #![cfg_attr(windows, windows_subsystem = "windows")] // pas de console derrière la fenêtre
 
+mod annot;
 mod app;
 #[cfg(feature = "capture")]
 mod capture;

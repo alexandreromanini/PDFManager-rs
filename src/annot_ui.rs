@@ -377,12 +377,14 @@ impl App {
             return self.action("crop-cancel");
         }
         let tool_on = !self.tool.is_empty();
-        let Some(tab) = self.tab() else { return };
+        let Some(tab) = self.tab() else { return self.leave_fullscreen() };
         if tab.editor.take().is_none() && tab.gesture.take().is_none() {
             if tool_on {
                 return self.set_tool("");
             }
-            tab.picked = None;
+            if tab.picked.take().is_none() {
+                self.leave_fullscreen();
+            }
         }
         self.sync_picked();
         self.update_view();

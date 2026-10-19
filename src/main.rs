@@ -6,6 +6,7 @@
 mod app;
 #[cfg(feature = "capture")]
 mod capture;
+mod edit;
 mod engine;
 mod instance;
 mod layout;

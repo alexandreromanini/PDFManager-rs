@@ -53,6 +53,7 @@ component IconButton inherits Rectangle {
 
 component PrimaryButton inherits Rectangle {
     in property <string> text;
+    in property <string> label: text;
     in property <image> icon;
     in property <bool> enabled: true;
     callback clicked();
@@ -61,7 +62,7 @@ component PrimaryButton inherits Rectangle {
     opacity: enabled ? 1 : 0.45;
     background: enabled && ta.has-hover ? Theme.accent-hover : Theme.accent;
     accessible-role: button;
-    accessible-label: text;
+    accessible-label: label;
     accessible-enabled: enabled;
     accessible-action-default => { if enabled { root.clicked(); } }
     HorizontalLayout {
@@ -481,7 +482,9 @@ export component AppWindow inherits Window {
                     }
                     IconButton { icon: Icons.plus; y: 10px; label: "Ouvrir un PDF (Ctrl+O)"; clicked => { root.open(); } }
                     search-field := LineEdit {
-                        width: 300px;
+                        // rétrécit d'abord : le menu « ⋯ » reste visible en fenêtre étroite
+                        min-width: 120px;
+                        preferred-width: 300px;
                         height: 34px;
                         y: 9px;
                         placeholder-text: "Rechercher dans le document (Ctrl+F)";
@@ -880,16 +883,17 @@ export component AppWindow inherits Window {
                     }
                 }
                 if !root.on-home && root.tabs.length > 0: VerticalLayout {
-                    // barre du document
-                    Rectangle {
+                    // barre du document ; fenêtre étroite : les commandes secondaires (aussi au
+                    // clavier) disparaissent par paliers, Enregistrer reste visible.
+                    bar := Rectangle {
                         height: 46px;
                         HorizontalLayout {
                             padding-left: 10px;
                             padding-right: 10px;
                             spacing: 2px;
-                            IconButton { icon: Icons.undo; y: 7px; enabled: root.can-undo; label: "Annuler (Ctrl+Z)"; clicked => { root.action("undo"); } }
-                            IconButton { icon: Icons.redo; y: 7px; enabled: root.can-redo; label: "Rétablir (Ctrl+Y)"; clicked => { root.action("redo"); } }
-                            Rectangle { width: 12px; Separator { } }
+                            if bar.width >= 560px: IconButton { icon: Icons.undo; y: 7px; enabled: root.can-undo; label: "Annuler (Ctrl+Z)"; clicked => { root.action("undo"); } }
+                            if bar.width >= 560px: IconButton { icon: Icons.redo; y: 7px; enabled: root.can-redo; label: "Rétablir (Ctrl+Y)"; clicked => { root.action("redo"); } }
+                            if bar.width >= 560px: Rectangle { width: 12px; Separator { } }
                             IconButton { icon: Icons.chevron-left; y: 7px; label: "Page précédente"; clicked => { root.step-page(-1); } }
                             LineEdit {
                                 width: 56px;
@@ -912,13 +916,13 @@ export component AppWindow inherits Window {
                                 accepted(text) => { root.zoom-entered(text); }
                             }
                             IconButton { icon: Icons.zoom-in; y: 7px; label: "Zoom avant (Ctrl++)"; clicked => { root.zoom-step(1); } }
-                            IconButton { icon: Icons.fit-width; y: 7px; label: "Ajuster à la largeur (Ctrl+2)"; clicked => { root.fit(1); } }
-                            IconButton { icon: Icons.fit-page; y: 7px; label: "Ajuster à la page (Ctrl+0)"; clicked => { root.fit(2); } }
-                            Rectangle { width: 12px; Separator { } }
-                            IconButton { icon: Icons.rotate-left; y: 7px; label: "Pivoter l'affichage à gauche"; clicked => { root.rotate(-90); } }
-                            IconButton { icon: Icons.rotate-right; y: 7px; label: "Pivoter l'affichage à droite"; clicked => { root.rotate(90); } }
-                            Rectangle { width: 12px; Separator { } }
-                            ComboBox {
+                            if bar.width >= 660px: IconButton { icon: Icons.fit-width; y: 7px; label: "Ajuster à la largeur (Ctrl+2)"; clicked => { root.fit(1); } }
+                            if bar.width >= 660px: IconButton { icon: Icons.fit-page; y: 7px; label: "Ajuster à la page (Ctrl+0)"; clicked => { root.fit(2); } }
+                            if bar.width >= 740px: Rectangle { width: 12px; Separator { } }
+                            if bar.width >= 740px: IconButton { icon: Icons.rotate-left; y: 7px; label: "Pivoter l'affichage à gauche"; clicked => { root.rotate(-90); } }
+                            if bar.width >= 740px: IconButton { icon: Icons.rotate-right; y: 7px; label: "Pivoter l'affichage à droite"; clicked => { root.rotate(90); } }
+                            if bar.width >= 900px: Rectangle { width: 12px; Separator { } }
+                            if bar.width >= 900px: ComboBox {
                                 width: 150px;
                                 height: 32px;
                                 y: 7px;
@@ -929,7 +933,8 @@ export component AppWindow inherits Window {
                             Rectangle { horizontal-stretch: 1; }
                             PrimaryButton {
                                 y: 5px;
-                                text: "Enregistrer";
+                                text: bar.width >= 480px ? "Enregistrer" : "";
+                                label: "Enregistrer (Ctrl+S)";
                                 icon: Icons.save;
                                 enabled: root.modified;
                                 clicked => { root.action("save"); }

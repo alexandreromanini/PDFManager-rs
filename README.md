@@ -21,6 +21,7 @@ usages.
 | 5 | Modifier le texte existant, caviardage | ✅ 0.5.0 |
 | 6 | OCR, assistant IA, conversions | ✅ 0.6.0 |
 | 7 | Signatures, comparaison | ✅ 0.7.0 |
+| Audit | Tests de bout en bout, 20 corrections (voir [AUDIT.md](AUDIT.md)) | ✅ |
 
 ## Fonctions (phase 1)
 
@@ -140,6 +141,8 @@ cargo run --release -- fichier.pdf
 cargo test --release
 # Captures d'écran hors écran (développement) :
 cargo run --release --features capture -- --capture sortie.ppm 1280 820 light fichier.pdf -- search:mot
+# Parcours de bout en bout (125 scénarios, l'appli pilotée hors écran ; pip install pymupdf) :
+cargo build --release --features capture && python tests/parcours.py
 ```
 
 Si la compilation de `mupdf-sys` échoue sur « 'stddef.h' file not found » (en-têtes de clang

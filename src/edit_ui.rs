@@ -530,8 +530,8 @@ impl App {
 
     fn save(&mut self) {
         let Some(tab) = self.current_tab() else { return };
-        if !tab.modified && !tab.overwrite_confirmed && tab.can_undo {
-            return;
+        if !tab.modified {
+            return self.toast("Aucune modification à enregistrer.");
         }
         if !tab.overwrite_confirmed {
             let mut text = format!("Enregistrer dans « {} » ?\nLe fichier d'origine sera remplacé \

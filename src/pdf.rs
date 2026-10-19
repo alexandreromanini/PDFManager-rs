@@ -242,6 +242,10 @@ impl Pdf {
     }
 
 
+    pub fn doc(&self) -> &PdfDocument {
+        &self.doc
+    }
+
     pub fn page_count(&self) -> usize {
         self.sizes.len()
     }

@@ -20,11 +20,13 @@ pub struct Settings {
     pub recent: Vec<String>,
     pub theme: String, // "system", "light" ou "dark"
     pub sidebar: bool,
+    /// Auteur des commentaires (vide : nom de session).
+    pub author: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { recent: vec![], theme: "system".into(), sidebar: true }
+        Settings { recent: vec![], theme: "system".into(), sidebar: true, author: String::new() }
     }
 }
 

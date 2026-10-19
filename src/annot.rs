@@ -228,11 +228,25 @@ pub fn add_stamp(pdf: &mut Pdf, page: usize, rect: Rect, name: &str, author: &st
 /// Texte ajouté dans le cadre `rect` (retour à la ligne automatique), droit à l'écran.
 pub fn add_typewriter(pdf: &mut Pdf, page: usize, rect: Rect, text: &str, color: Color, size: f32,
                       author: &str) -> Result<i32, String> {
-    add(pdf, "Ajouter du texte", page, author, |p| p.add_free_text_annotation(mrect(rect), text), |a, p| {
+    add_text(pdf, "Ajouter du texte", page, rect, text, color, size, author, true)
+}
+
+/// Commentaire « texte libre » : texte encadré, dans la liste des commentaires.
+pub fn add_freetext(pdf: &mut Pdf, page: usize, rect: Rect, text: &str, color: Color, size: f32,
+                    author: &str) -> Result<i32, String> {
+    add_text(pdf, "Texte libre", page, rect, text, color, size, author, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_text(pdf: &mut Pdf, label: &str, page: usize, rect: Rect, text: &str, color: Color, size: f32,
+            author: &str, typewriter: bool) -> Result<i32, String> {
+    add(pdf, label, page, author, |p| p.add_free_text_annotation(mrect(rect), text), |a, p| {
         a.set_default_appearance("Helv", size, Some(rgb(color)))?;
-        a.set_border_width(0.0)?;
+        a.set_border_width(if typewriter { 0.0 } else { 1.0 })?;
         let mut obj = a.object();
-        obj.dict_put("IT", PdfObject::new_name(TYPEWRITER)?)?;
+        if typewriter {
+            obj.dict_put("IT", PdfObject::new_name(TYPEWRITER)?)?;
+        }
         obj.dict_put("Rotate", PdfObject::new_int(p.rotation()?)?)?; // droit sur une page tournée
         Ok(())
     })
@@ -260,13 +274,6 @@ pub fn list(pdf: &Pdf) -> Vec<AnnotInfo> {
         }
     }
     out
-}
-
-/// Annotation sous le point (la plus au-dessus), marge de `tol` points.
-pub fn find_at(pdf: &Pdf, page: usize, x: f32, y: f32, tol: f32) -> Option<AnnotInfo> {
-    list(pdf).into_iter().rev().find(|a| {
-        a.page == page && Rect::new(a.rect.x0 - tol, a.rect.y0 - tol, a.rect.x1 + tol, a.rect.y1 + tol).contains(x, y)
-    })
 }
 
 /// Modifie l'annotation `xref` de `page` dans une étape annulable.
@@ -515,7 +522,6 @@ mod tests {
         assert_eq!((n.author.as_str(), n.content.as_str()), ("Alex", "À revoir"));
         assert_eq!(n.modified.len(), 16, "date : {}", n.modified);
         assert!(n.rect.contains(305.0, 305.0), "{:?}", n.rect);
-        assert_eq!(find_at(&pdf, 0, 305.0, 305.0, 3.0).map(|a| a.xref), Some(note));
 
         set_content(&mut pdf, 0, note, "Vu", "Alex").unwrap();
         move_by(&mut pdf, 0, note, 100.0, 0.0, "Alex").unwrap();

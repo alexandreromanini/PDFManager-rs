@@ -18,6 +18,7 @@ const IMAGES: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "we
 struct Edited {
     sizes: Vec<(f32, f32)>,
     bookmarks: Vec<crate::pdf::Bookmark>,
+    comments: Vec<crate::annot::AnnotInfo>,
     modified: bool,
     can_undo: bool,
     can_redo: bool,
@@ -27,6 +28,7 @@ fn state_of(pdf: &Pdf) -> Edited {
     Edited {
         sizes: pdf.page_sizes().to_vec(),
         bookmarks: pdf.bookmarks(),
+        comments: crate::annot::list(pdf),
         modified: pdf.modified(),
         can_undo: pdf.undo_label().is_some(),
         can_redo: pdf.redo_label().is_some(),
@@ -109,8 +111,26 @@ impl App {
     }
 
     pub fn action(&mut self, name: &str) {
+        if name == "delete" && self.delete_picked() {
+            return;
+        }
+        if name.starts_with("save") {
+            self.editor_commit(); // texte en cours d'écriture compris
+        }
         let targets = self.targets();
         match name {
+            "escape" => self.escape(),
+            "add-image" => self.add_image_start(),
+            "header" => {
+                if self.current_tab().is_some() {
+                    self.ui().invoke_show_header();
+                }
+            }
+            "watermark" => {
+                if self.current_tab().is_some() {
+                    self.ui().invoke_show_watermark();
+                }
+            }
             "undo" => self.history(true),
             "redo" => self.history(false),
             "save" => self.save(),
@@ -151,7 +171,7 @@ impl App {
 
     /// Modification du document courant dans le moteur. `op` renvoie éventuellement les
     /// pages à sélectionner ensuite ; `done` : message affiché en cas de succès.
-    fn edit(&mut self, done: &str, op: impl FnOnce(&mut Pdf) -> Result<Option<Vec<usize>>, String> + Send + 'static) {
+    pub(super) fn edit(&mut self, done: &str, op: impl FnOnce(&mut Pdf) -> Result<Option<Vec<usize>>, String> + Send + 'static) {
         let Some(tab) = self.current_tab() else { return };
         let id = tab.id;
         let done = done.to_string();
@@ -178,6 +198,7 @@ impl App {
         tab.current = tab.current.min(state.sizes.len() - 1);
         tab.sizes = state.sizes;
         tab.bookmarks = state.bookmarks;
+        App::comments_changed(tab, state.comments);
         tab.modified = state.modified;
         tab.can_undo = state.can_undo;
         tab.can_redo = state.can_redo;

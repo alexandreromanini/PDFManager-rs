@@ -2,7 +2,8 @@
 //! image PPM, pour vérifier l'interface sans affichage.
 //! `pdfmanager --capture sortie.ppm largeur hauteur thème fichier.pdf… [-- action…]`
 //! Actions : `wait`, `home`, `sidebar`, `zoom+`, `page:N`, `search:texte`, `rail:N`, `panel:N`,
-//! `action:nom` (sans dialogue), `select:N` (Ctrl+clic sur une vignette).
+//! `action:nom` (sans dialogue), `select:N` (Ctrl+clic sur une vignette), `tool:nom`, `color:N`,
+//! `drag:page,x0,y0,x1,y1`, `type:texte` (éditeur), `header`, `watermark:texte`.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -86,6 +87,23 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "panel" => app::with_app(move |a| a.set_panel(arg.parse().unwrap_or(0))),
             "action" => app::with_app(move |a| a.action(&arg)),
             "select" => app::with_app(move |a| a.thumb_press(arg.parse().unwrap_or(0), true, false)),
+            "tool" => app::with_app(move |a| a.set_tool(&arg)),
+            "color" => app::with_app(move |a| a.pick_color(false, arg.parse().unwrap_or(0))),
+            "type" => ui.set_editor_text(arg.into()),
+            // drag:page,x0,y0,x1,y1 (pixels de la page affichée)
+            "drag" => {
+                let v: Vec<f32> = arg.split(',').map(|n| n.parse().unwrap_or(0.0)).collect();
+                let page = v[0] as usize;
+                app::with_app(move |a| {
+                    a.page_press(page, v[1], v[2]);
+                    a.page_drag(page, (v[1] + v[3]) / 2.0, (v[2] + v[4]) / 2.0 + 3.0);
+                    a.page_drag(page, v[3], v[4]);
+                    a.page_release(page, v[3], v[4]);
+                });
+            }
+            "header" => app::with_app(|a| a.header_run(["{fichier}".into(), String::new(), "{date}".into(), String::new(),
+                                                         "Page {n} sur {total}".into(), String::new()], 10, 1, String::new())),
+            "watermark" => app::with_app(move |a| a.watermark_run(arg, 72, 30, 45, String::new())),
             _ => {}
         }
         pump(&queue, 800);

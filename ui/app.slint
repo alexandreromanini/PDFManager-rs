@@ -1,7 +1,7 @@
 // Fenêtre de PDFManager (phase 1 : lecteur). Même organisation que la version Python :
 // barre d'application (accueil, onglets, recherche, thème, menu), accueil, barre du
 // document, vue des pages, rail de droite (vignettes, signets), notifications.
-import { LineEdit, ComboBox, ListView, ScrollView, Button, Palette, CheckBox, SpinBox } from "std-widgets.slint";
+import { LineEdit, ComboBox, ListView, ScrollView, Button, Palette, CheckBox, SpinBox, TextEdit } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 export { Theme }
 
@@ -10,8 +10,9 @@ export struct RecentData { name: string, folder: string, when: string, path: str
 export struct Area { x: length, y: length, w: length, h: length }
 export struct PageData {
     index: int, x: length, y: length, w: length, h: length, image: image,
-    hits: [Area], current: [Area], selection: [Area], draft: [Area],
+    hits: [Area], current: [Area], selection: [Area], draft: [Area], marked: [Area], path: string,
 }
+export struct CommentData { page: int, label: string, author: string, date: string, content: string, selected: bool }
 export struct ThumbData { index: int, image: image, w: length, h: length, selected: bool, drop-before: bool }
 export struct BookmarkData { title: string, level: int, page: int }
 
@@ -132,6 +133,52 @@ component DocTab inherits Rectangle {
     }
 }
 
+component Tile inherits Rectangle {
+    in property <image> icon;
+    in property <string> text;
+    in property <bool> checked;
+    callback clicked();
+    width: 60px;
+    height: 60px;
+    border-radius: 6px;
+    background: root.checked ? Theme.accent-soft : ta.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+        HorizontalLayout {
+            alignment: center;
+            Image { source: root.icon; width: 20px; height: 20px; colorize: root.checked ? Theme.accent-on-soft : Theme.icon; }
+        }
+        Text {
+            text: root.text;
+            font-size: 11px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            color: root.checked ? Theme.accent-on-soft : Theme.text;
+        }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+component Swatches inherits HorizontalLayout {
+    in property <[color]> colors;
+    in property <int> current;
+    callback picked(int);
+    spacing: 8px;
+    alignment: start;
+    for c[i] in root.colors: Rectangle {
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        background: c;
+        border-width: i == root.current ? 3px : 1px;
+        border-color: i == root.current ? Theme.accent : Theme.border-strong;
+        TouchArea { mouse-cursor: pointer; clicked => { root.picked(i); } }
+    }
+}
+
 component Separator inherits Rectangle {
     width: 1px;
     height: 22px;
@@ -190,6 +237,44 @@ export component AppWindow inherits Window {
     callback split-run(bool, int, string);
     public function show-merge() { merge-popup.show(); }
     public function show-split() { split-popup.show(); }
+    public function show-note() { note-popup.show(); }
+    public function show-header() { header-popup.show(); }
+    public function show-watermark() { watermark-popup.show(); }
+    function show-comments() {
+        if (!root.sidebar-visible) { root.toggle-sidebar(); }
+        root.set-rail-tab(2);
+    }
+    in property <string> tool;
+    in property <bool> drawing;
+    in-out property <int> color-index: 0;
+    in-out property <int> text-color-index: 0;
+    in-out property <int> stroke-width: 2;
+    in-out property <int> text-size: 12;
+    in-out property <int> stamp-index: 0;
+    in property <string> author;
+    in property <string> picked-info;
+    in property <[CommentData]> comments;
+    in property <bool> editor-visible;
+    in property <length> editor-x;
+    in property <length> editor-y;
+    in property <length> editor-w;
+    in property <length> editor-h;
+    in property <length> editor-font;
+    in property <color> editor-color;
+    in-out property <string> editor-text;
+    in property <string> note-title;
+    in-out property <string> note-text;
+    callback set-tool(string);
+    callback pick-color(bool, int);
+    callback text-size-changed(int);
+    callback set-author(string);
+    callback page-double(int, length, length);
+    callback note-done(string);
+    callback comment-clicked(int);
+    callback comment-edit(int);
+    callback comment-delete(int);
+    callback header-run(string, string, string, string, string, string, int, int, string);
+    callback watermark-run(string, int, int, int, string);
 
     callback open();
     callback open-recent(string);
@@ -256,7 +341,7 @@ export component AppWindow inherits Window {
                 return reject;
             }
             if (e.text == Key.Delete) { root.action("delete"); return accept; }
-            if (e.text == Key.Escape && root.crop-mode) { root.action("crop-cancel"); return accept; }
+            if (e.text == Key.Escape) { root.action("escape"); return accept; }
             if (e.text == Key.F3) { root.search-step(e.modifiers.shift ? -1 : 1); return accept; }
             if (e.text == Key.F4) { root.toggle-sidebar(); return accept; }
             if (e.text == Key.F11) { root.toggle-fullscreen(); return accept; }
@@ -340,8 +425,11 @@ export component AppWindow inherits Window {
                     ToolRow { tile: true; icon: Icons.organize; text: "Organiser les pages"; enabled: root.tabs.length > 0; clicked => { root.set-panel(1); } }
                     ToolRow { tile: true; icon: Icons.combine; text: "Fusionner des PDF"; clicked => { root.action("merge"); } }
                     ToolRow { tile: true; icon: Icons.scissors; text: "Scinder un PDF"; enabled: root.tabs.length > 0; clicked => { root.action("split"); } }
+                    Section { text: "Modifier"; height: 28px; vertical-alignment: center; }
+                    ToolRow { tile: true; icon: Icons.edit; text: "Ajouter du texte et des images"; enabled: root.tabs.length > 0; clicked => { root.set-panel(3); } }
+                    ToolRow { tile: true; icon: Icons.note; text: "Commenter"; enabled: root.tabs.length > 0; clicked => { root.set-panel(2); } }
                     Rectangle { height: 12px; }
-                    Text { text: "Les autres outils (modifier, commenter, formulaires, signer…) arrivent dans les prochaines phases."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
+                    Text { text: "Les autres outils (formulaires, convertir, signer et protéger, assistant IA) arrivent dans les prochaines phases."; color: Theme.text3; wrap: word-wrap; font-size: 12px; }
                 }
                 if root.panel == 1: Flickable {
                     content-height: org.preferred-height;
@@ -367,9 +455,124 @@ export component AppWindow inherits Window {
                         ToolRow { icon: Icons.fit-page; text: "Annuler le recadrage"; clicked => { root.action("reset-crop"); } }
                         ToolRow { icon: Icons.combine; text: "Fusionner des PDF…"; clicked => { root.action("merge"); } }
                         ToolRow { icon: Icons.scissors; text: "Scinder le document…"; clicked => { root.action("split"); } }
+                        ToolRow { icon: Icons.panel; text: "En-tête, pied de page et numérotation…"; clicked => { root.action("header"); } }
+                        ToolRow { icon: Icons.droplets; text: "Filigrane…"; clicked => { root.action("watermark"); } }
                         Text {
                             text: "Les actions portent sur les vignettes sélectionnées (Ctrl+clic, Maj+clic), sinon sur la page affichée. Glissez une vignette pour déplacer des pages.";
                             color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                    }
+                }
+                if root.panel == 2: Flickable {
+                    content-height: com.preferred-height;
+                    com := VerticalLayout {
+                        padding: 12px;
+                        padding-top: 6px;
+                        spacing: 6px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            IconButton { icon: Icons.back; label: "Tous les outils"; clicked => { root.set-tool(""); root.set-panel(0); } }
+                            Text { text: "Commenter"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        Rectangle {
+                            height: 3 * 62px;
+                            for t[i] in [
+                                { id: "", text: "Sélection", icon: Icons.pointer },
+                                { id: "highlight", text: "Surligner", icon: Icons.highlighter },
+                                { id: "underline", text: "Souligner", icon: Icons.underline },
+                                { id: "strikeout", text: "Barrer", icon: Icons.strikethrough },
+                                { id: "note", text: "Note", icon: Icons.note },
+                                { id: "freetext", text: "Texte libre", icon: Icons.text },
+                                { id: "rect", text: "Rectangle", icon: Icons.square },
+                                { id: "ellipse", text: "Ellipse", icon: Icons.circle },
+                                { id: "line", text: "Ligne", icon: Icons.line },
+                                { id: "arrow", text: "Flèche", icon: Icons.arrow },
+                                { id: "ink", text: "Dessin", icon: Icons.pencil },
+                                { id: "stamp", text: "Tampon", icon: Icons.stamp },
+                            ]: Tile {
+                                x: Math.mod(i, 4) * 62px;
+                                y: Math.floor(i / 4) * 62px;
+                                icon: t.icon;
+                                text: t.text;
+                                checked: root.tool == t.id;
+                                clicked => { root.set-tool(t.id); }
+                            }
+                        }
+                        if root.tool == "stamp": ComboBox {
+                            model: ["Approuvé", "Non approuvé", "Brouillon", "Final", "Confidentiel", "Pour commentaire", "Expiré", "Top secret"];
+                            current-index <=> root.stamp-index;
+                        }
+                        Section { text: "Couleur"; height: 28px; vertical-alignment: center; }
+                        Swatches {
+                            colors: [#FFD60A, #7BD389, #64B5F6, #F48FB1, #E53935, #1B1B1B];
+                            current: root.color-index;
+                            picked(i) => { root.pick-color(false, i); }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Épaisseur des traits"; color: Theme.text; vertical-alignment: center; }
+                            SpinBox { minimum: 1; maximum: 20; value <=> root.stroke-width; width: 90px; }
+                        }
+                        Section { text: "Commentaires"; height: 28px; vertical-alignment: center; }
+                        ToolRow { icon: Icons.list; text: "Voir la liste des commentaires"; clicked => { root.show-comments(); } }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Auteur"; color: Theme.text; vertical-alignment: center; }
+                            LineEdit { text: root.author; placeholder-text: "nom de session"; edited(t) => { root.set-author(t); } }
+                        }
+                        if root.picked-info != "": Text { text: root.picked-info; color: Theme.text2; wrap: word-wrap; font-size: 12px; }
+                        Text {
+                            text: "Sélection : cliquez un commentaire pour le sélectionner, glissez-le pour le déplacer, double-cliquez pour modifier son texte, Suppr pour le supprimer. Échap revient à la sélection.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                    }
+                }
+                if root.panel == 3: Flickable {
+                    content-height: edt.preferred-height;
+                    edt := VerticalLayout {
+                        padding: 12px;
+                        padding-top: 6px;
+                        spacing: 6px;
+                        alignment: start;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            IconButton { icon: Icons.back; label: "Tous les outils"; clicked => { root.set-tool(""); root.set-panel(0); } }
+                            Text { text: "Modifier"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                        }
+                        Rectangle {
+                            height: 62px;
+                            Tile { x: 0px; icon: Icons.pointer; text: "Sélection"; checked: root.tool == ""; clicked => { root.set-tool(""); } }
+                            Tile { x: 62px; icon: Icons.type; text: "Ajouter du texte"; checked: root.tool == "text"; clicked => { root.set-tool("text"); } }
+                            Tile { x: 124px; icon: Icons.image; text: "Image"; checked: root.tool == "image"; clicked => { root.action("add-image"); } }
+                        }
+                        Section { text: "Texte ajouté"; height: 28px; vertical-alignment: center; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Taille"; color: Theme.text; vertical-alignment: center; }
+                            SpinBox { minimum: 4; maximum: 200; value <=> root.text-size; width: 90px; edited(v) => { root.text-size-changed(v); } }
+                        }
+                        Swatches {
+                            colors: [#000000, #E53935, #1E88E5, #43A047, #FB8C00, #8E24AA];
+                            current: root.text-color-index;
+                            picked(i) => { root.pick-color(true, i); }
+                        }
+                        Section { text: "Pages"; height: 28px; vertical-alignment: center; }
+                        ToolRow { icon: Icons.panel; text: "En-tête, pied de page et numérotation…"; clicked => { root.action("header"); } }
+                        ToolRow { icon: Icons.droplets; text: "Filigrane…"; clicked => { root.action("watermark"); } }
+                        Text {
+                            text: "Ajouter du texte : cliquez ou tracez une bulle et écrivez dedans ; cliquez à côté pour valider (Échap pour annuler). Ensuite, glissez-la pour la déplacer et double-cliquez pour la modifier. Taille et couleur s'appliquent au texte sélectionné et aux suivants.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
+                        Text {
+                            text: "Modifier le texte d'origine du document arrive en phase 5.";
+                            color: Theme.text3;
                             wrap: word-wrap;
                             font-size: 12px;
                         }
@@ -542,8 +745,19 @@ export component AppWindow inherits Window {
                                     for b in p.current: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.current-hit; }
                                     for b in p.selection: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; background: Theme.selection; }
                                     for b in p.draft: Rectangle { x: b.x; y: b.y; width: b.w; height: b.h; border-width: 2px; border-color: Theme.accent; background: #D93A2B1f; }
+                                    for b in p.marked: Rectangle { x: b.x - 2px; y: b.y - 2px; width: b.w + 4px; height: b.h + 4px; border-width: 2px; border-color: Theme.accent; }
+                                    if p.path != "": Path {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        viewbox-width: self.width / 1px;
+                                        viewbox-height: self.height / 1px;
+                                        commands: p.path;
+                                        stroke: Theme.accent;
+                                        stroke-width: 2px;
+                                    }
                                     pta := TouchArea {
-                                        mouse-cursor: root.crop-mode ? MouseCursor.crosshair : MouseCursor.text;
+                                        mouse-cursor: root.crop-mode || root.drawing ? MouseCursor.crosshair : MouseCursor.text;
+                                        double-clicked => { root.page-double(p.index, self.mouse-x, self.mouse-y); }
                                         pointer-event(e) => {
                                             if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
                                                 keys.focus();
@@ -558,6 +772,25 @@ export component AppWindow inherits Window {
                                             if (e.modifiers.control) { root.wheel-zoom(e.delta-y); return accept; }
                                             return reject;
                                         }
+                                    }
+                                }
+                                if root.editor-visible: Rectangle {
+                                    x: root.editor-x + max(0px, (view.visible-width - root.content-width) / 2);
+                                    y: root.editor-y;
+                                    width: max(root.editor-w, editor-input.preferred-width + 10px);
+                                    height: max(root.editor-h, editor-input.preferred-height + 6px);
+                                    background: #ffffffe6;
+                                    border-width: 1px;
+                                    border-color: Theme.accent;
+                                    editor-input := TextInput {
+                                        x: 4px;
+                                        y: 3px;
+                                        width: parent.width - 8px;
+                                        text <=> root.editor-text;
+                                        font-size: root.editor-font;
+                                        color: root.editor-color;
+                                        single-line: false;
+                                        init => { self.focus(); }
                                     }
                                 }
                             }
@@ -632,6 +865,34 @@ export component AppWindow inherits Window {
                                         bta := TouchArea { mouse-cursor: pointer; clicked => { root.bookmark-clicked(b.page); } }
                                     }
                                 }
+                                if root.rail-tab == 2 && root.comments.length == 0: Text {
+                                    horizontal-stretch: 1;
+                                    text: "Aucun commentaire";
+                                    color: Theme.text2;
+                                    vertical-alignment: top;
+                                    horizontal-alignment: center;
+                                }
+                                if root.rail-tab == 2 && root.comments.length > 0: ListView {
+                                    horizontal-stretch: 1;
+                                    for c[i] in root.comments: Rectangle {
+                                        height: 66px;
+                                        background: c.selected ? Theme.accent-soft : cta.has-hover ? Theme.hover : transparent;
+                                        cta := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.comment-clicked(i); }
+                                            double-clicked => { root.comment-edit(i); }
+                                        }
+                                        VerticalLayout {
+                                            padding: 8px;
+                                            padding-right: 40px;
+                                            spacing: 2px;
+                                            Text { text: c.label + " - page " + c.page; font-weight: 600; color: Theme.text; overflow: elide; }
+                                            Text { text: c.author + (c.date != "" ? ", " + c.date : ""); font-size: 11px; color: Theme.text2; overflow: elide; }
+                                            Text { text: c.content; font-size: 12px; color: Theme.text2; overflow: elide; }
+                                        }
+                                        IconButton { x: parent.width - 38px; y: 6px; icon: Icons.trash; label: "Supprimer"; clicked => { root.comment-delete(i); } }
+                                    }
+                                }
                                 Rectangle { width: 1px; background: Theme.border; }
                                 VerticalLayout {
                                     width: 48px;
@@ -640,6 +901,7 @@ export component AppWindow inherits Window {
                                     alignment: start;
                                     IconButton { x: 8px; icon: Icons.pages; checked: root.rail-tab == 0; label: "Pages"; clicked => { root.set-rail-tab(0); } }
                                     IconButton { x: 8px; icon: Icons.bookmark; checked: root.rail-tab == 1; label: "Signets"; clicked => { root.set-rail-tab(1); } }
+                                    IconButton { x: 8px; icon: Icons.list; checked: root.rail-tab == 2; label: "Commentaires"; clicked => { root.set-rail-tab(2); } }
                                 }
                             }
                         }
@@ -852,6 +1114,153 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { split-popup.close(); } }
                     Button { text: "Scinder…"; primary: true; clicked => { split-popup.close(); root.split-run(every.checked, count.value, ranges.text); } }
+                }
+            }
+        }
+    }
+
+    note-popup := PopupWindow {
+        x: (root.width - 420px) / 2;
+        y: (root.height - 260px) / 2;
+        width: 420px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: root.note-title; font-size: 16px; font-weight: 600; color: Theme.text; }
+                TextEdit { height: 120px; text <=> root.note-text; init => { self.focus(); } }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { note-popup.close(); } }
+                    Button { text: "OK"; primary: true; clicked => { note-popup.close(); root.note-done(root.note-text); } }
+                }
+            }
+        }
+    }
+
+    header-popup := PopupWindow {
+        x: (root.width - 620px) / 2;
+        y: (root.height - 340px) / 2;
+        width: 620px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "En-tête, pied de page et numérotation"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text {
+                    text: "Champs utilisables : {n} numéro de page, {total} nombre de pages, {date}, {fichier} (nom du document).";
+                    color: Theme.text2;
+                    wrap: word-wrap;
+                }
+                GridLayout {
+                    spacing: 6px;
+                    Row {
+                        Text { }
+                        Text { text: "Gauche"; color: Theme.text2; }
+                        Text { text: "Centre"; color: Theme.text2; }
+                        Text { text: "Droite"; color: Theme.text2; }
+                    }
+                    Row {
+                        Text { text: "En-tête"; color: Theme.text; vertical-alignment: center; }
+                        h-tl := LineEdit { }
+                        h-tc := LineEdit { }
+                        h-tr := LineEdit { }
+                    }
+                    Row {
+                        Text { text: "Pied de page"; color: Theme.text; vertical-alignment: center; }
+                        h-bl := LineEdit { }
+                        h-bc := LineEdit { text: "Page {n} sur {total}"; }
+                        h-br := LineEdit { }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Taille"; color: Theme.text; vertical-alignment: center; }
+                    h-size := SpinBox { minimum: 6; maximum: 36; value: 10; width: 90px; }
+                    Rectangle { width: 12px; }
+                    Text { text: "Premier numéro"; color: Theme.text; vertical-alignment: center; }
+                    h-start := SpinBox { minimum: 0; maximum: 9999; value: 1; width: 100px; }
+                    Rectangle { width: 12px; }
+                    Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
+                    h-pages := LineEdit { placeholder-text: "toutes (ou 2-10)"; }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { header-popup.close(); } }
+                    Button {
+                        text: "Ajouter";
+                        primary: true;
+                        clicked => {
+                            header-popup.close();
+                            root.header-run(h-tl.text, h-tc.text, h-tr.text, h-bl.text, h-bc.text, h-br.text,
+                                            h-size.value, h-start.value, h-pages.text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    watermark-popup := PopupWindow {
+        x: (root.width - 460px) / 2;
+        y: (root.height - 300px) / 2;
+        width: 460px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Filigrane"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                w-text := LineEdit { text: "CONFIDENTIEL"; }
+                GridLayout {
+                    spacing: 8px;
+                    Row {
+                        Text { text: "Taille"; color: Theme.text; vertical-alignment: center; }
+                        w-size := SpinBox { minimum: 8; maximum: 300; value: 72; }
+                        Text { text: "Opacité (%)"; color: Theme.text; vertical-alignment: center; }
+                        w-opacity := SpinBox { minimum: 5; maximum: 100; value: 30; }
+                    }
+                    Row {
+                        Text { text: "Inclinaison (°)"; color: Theme.text; vertical-alignment: center; }
+                        w-angle := SpinBox { minimum: -90; maximum: 90; value: 45; }
+                        Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
+                        w-pages := LineEdit { placeholder-text: "toutes"; }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { watermark-popup.close(); } }
+                    Button {
+                        text: "Ajouter";
+                        primary: true;
+                        clicked => {
+                            watermark-popup.close();
+                            root.watermark-run(w-text.text, w-size.value, w-opacity.value, w-angle.value, w-pages.text);
+                        }
+                    }
                 }
             }
         }

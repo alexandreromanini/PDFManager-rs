@@ -1,6 +1,6 @@
 [package]
 name = "pdfmanager"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Lecteur et éditeur PDF personnel (réécriture en Rust de PDFManager)"
 license = "AGPL-3.0-or-later"

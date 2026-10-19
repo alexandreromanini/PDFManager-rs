@@ -28,6 +28,13 @@ impl Rect {
     pub fn contains(&self, x: f32, y: f32) -> bool {
         (self.x0..=self.x1).contains(&x) && (self.y0..=self.y1).contains(&y)
     }
+    /// Décalé (sans changer de taille) pour tenir dans une page `w` × `h` : cadre par
+    /// défaut posé d'un clic près d'un bord.
+    pub fn inside(self, (w, h): (f32, f32)) -> Rect {
+        let dx = (w - self.x1).min(0.0).max(-self.x0);
+        let dy = (h - self.y1).min(0.0).max(-self.y0);
+        Rect::new(self.x0 + dx, self.y0 + dy, self.x1 + dx, self.y1 + dy)
+    }
 }
 
 impl From<mupdf::Rect> for Rect {
@@ -499,6 +506,15 @@ mod tests {
 
     fn fixture() -> Vec<u8> {
         std::fs::read("tests/fixtures/Été déjà vu.pdf").expect("PDF de test")
+    }
+
+    #[test]
+    fn cadre_ramene_dans_la_page() {
+        let page = (595.0, 842.0);
+        assert_eq!(Rect::new(500.0, 820.0, 700.0, 880.0).inside(page), Rect::new(395.0, 782.0, 595.0, 842.0));
+        assert_eq!(Rect::new(-30.0, -10.0, 170.0, 40.0).inside(page), Rect::new(0.0, 0.0, 200.0, 50.0));
+        let r = Rect::new(10.0, 10.0, 50.0, 50.0);
+        assert_eq!(r.inside(page), r);
     }
 
     #[test]

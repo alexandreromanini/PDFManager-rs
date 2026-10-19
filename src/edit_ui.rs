@@ -207,6 +207,12 @@ impl App {
     pub(super) fn edit_report(&mut self, op: impl FnOnce(&mut Pdf) -> Result<(Option<Vec<usize>>, String), String> + Send + 'static) {
         let Some(tab) = self.current_tab() else { return };
         let id = tab.id;
+        self.edit_doc(id, op);
+    }
+
+    /// Comme `edit_report`, sur un document précis : pour une opération qui finit plus
+    /// tard (OCR…), l'utilisateur ayant pu changer d'onglet entre-temps.
+    pub(super) fn edit_doc(&mut self, id: DocId, op: impl FnOnce(&mut Pdf) -> Result<(Option<Vec<usize>>, String), String> + Send + 'static) {
         self.engine.run(move |docs| {
             let Some(pdf) = docs.get_mut(&id) else { return };
             let result = op(pdf).map(|(select, message)| (state_of(pdf), select, message));

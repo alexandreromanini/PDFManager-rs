@@ -116,7 +116,13 @@ impl App {
     pub(super) fn field_release(&mut self, page: usize, a: (f32, f32), b: (f32, f32)) -> bool {
         let Some((kind, (w, h))) = field_tool(&self.tool) else { return false };
         let small = (a.0 - b.0).abs() < 5.0 && (a.1 - b.1).abs() < 5.0;
-        let rect = if small { Rect::new(a.0, a.1, a.0 + w, a.1 + h) } else { Rect::new(a.0, a.1, b.0, b.1) };
+        let size = self.tab().and_then(|t| t.sizes.get(page).copied());
+        let rect = if small {
+            let r = Rect::new(a.0, a.1, a.0 + w, a.1 + h);
+            size.map_or(r, |s| r.inside(s))
+        } else {
+            Rect::new(a.0, a.1, b.0, b.1)
+        };
         if kind == "combo" {
             self.pending_note = Some(NoteTarget::Combo(page, rect));
             self.show_note("Choix de la liste, un par ligne", "");

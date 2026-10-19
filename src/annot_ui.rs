@@ -177,6 +177,8 @@ impl App {
             },
             t if MARKUP.contains(&t) => false,
             "note" => {
+                // L'icône (20 points) reste dans la page.
+                let pt = tab.sizes.get(page).map_or(pt, |&(w, h)| (pt.0.min(w - 20.0).max(0.0), pt.1.min(h - 20.0).max(0.0)));
                 self.pending_note = Some(NoteTarget::Note(page, pt));
                 self.show_note("Nouvelle note", "");
                 return true;
@@ -241,6 +243,7 @@ impl App {
             return true;
         }
         let Some(gesture) = tab.gesture.take() else { return false };
+        let sizes = tab.sizes.clone();
         let small = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 5.0 && (a.1 - b.1).abs() < 5.0;
         let around = |a: (f32, f32), w: f32, h: f32| Rect::new(a.0 - w / 2.0, a.1 - h / 2.0, a.0 + w / 2.0, a.1 + h / 2.0);
         match gesture {
@@ -257,6 +260,7 @@ impl App {
             }
             Gesture::Draw { page, a, b } => {
                 let r = Rect::new(a.0, a.1, b.0, b.1);
+                let fit = |r: Rect| sizes.get(page).map_or(r, |&s| r.inside(s));
                 match tool.as_str() {
                     t if t.starts_with("field-") => {
                         self.field_release(page, a, b);
@@ -267,7 +271,7 @@ impl App {
                         }
                     }
                     "digital-sign" => {
-                        let r = if small(a, b) { Rect::new(a.0, a.1, a.0 + 200.0, a.1 + 60.0) } else { r };
+                        let r = if small(a, b) { fit(Rect::new(a.0, a.1, a.0 + 200.0, a.1 + 60.0)) } else { r };
                         self.digital_start(super::sign_ui::SignTarget::New(page, r));
                     }
                     "rect" | "ellipse" | "line" | "arrow" => {
@@ -276,23 +280,23 @@ impl App {
                         }
                     }
                     "stamp" => {
-                        let r = if small(a, b) { around(a, 160.0, 50.0) } else { r };
+                        let r = if small(a, b) { fit(around(a, 160.0, 50.0)) } else { r };
                         self.annot_edit(move |pdf| annot::add_stamp(pdf, page, r, stamp, &author));
                     }
                     "image" => {
-                        let r = if small(a, b) { around(a, 200.0, 150.0) } else { r };
+                        let r = if small(a, b) { fit(around(a, 200.0, 150.0)) } else { r };
                         if let Some(data) = self.pending_image.take() {
                             self.annot_edit(move |pdf| annot::add_image(pdf, page, r, &data).map(|_| 0));
                         }
                         self.set_tool("");
                     }
                     "freetext" => {
-                        let r = if small(a, b) { Rect::new(a.0, a.1, a.0 + 200.0, a.1 + 60.0) } else { r };
+                        let r = if small(a, b) { fit(Rect::new(a.0, a.1, a.0 + 200.0, a.1 + 60.0)) } else { r };
                         self.pending_note = Some(NoteTarget::FreeText(page, r));
                         self.show_note("Texte libre", "");
                     }
                     "text" => {
-                        let r = if small(a, b) { Rect::new(a.0, a.1 - size * 0.6, a.0 + 150.0, a.1 + size * 0.8) } else { r };
+                        let r = if small(a, b) { fit(Rect::new(a.0, a.1 - size * 0.6, a.0 + 150.0, a.1 + size * 0.8)) } else { r };
                         if let Some(tab) = self.tab() {
                             tab.editor = Some(Editor { page, rect: r, xref: None, size, color: text_color, field: None, block: None });
                         }

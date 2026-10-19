@@ -984,6 +984,11 @@ impl App {
         w.window().set_fullscreen(!w.window().is_fullscreen());
     }
 
+    /// Échap, en dernier recours : sortir du plein écran.
+    pub fn leave_fullscreen(&self) {
+        self.ui().window().set_fullscreen(false);
+    }
+
     /// Lancement suivant (Explorateur) : fenêtre au premier plan, fichiers en onglets.
     pub fn bring_to_front(&mut self, paths: Vec<PathBuf>) {
         let ui = self.ui();

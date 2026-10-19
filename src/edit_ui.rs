@@ -1,0 +1,616 @@
+//! Contrôleur, partie édition : enregistrer, annuler / rétablir, organiser les pages
+//! (vignettes sélectionnables et déplaçables), recadrer, fusionner, scinder, extraire.
+//! Les modifications s'exécutent dans le thread moteur ; la fenêtre ne fige pas.
+
+use std::path::{Path, PathBuf};
+
+use slint::{ModelRc, VecModel};
+
+use super::{file_name, from_engine, reason, App, Tab};
+use crate::edit;
+use crate::engine::DocId;
+use crate::pdf::{OpenError, Pdf, Rect};
+use crate::settings::write_atomic;
+
+const IMAGES: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"];
+
+/// État d'un document après une modification, renvoyé par le moteur.
+struct Edited {
+    sizes: Vec<(f32, f32)>,
+    bookmarks: Vec<crate::pdf::Bookmark>,
+    modified: bool,
+    can_undo: bool,
+    can_redo: bool,
+}
+
+fn state_of(pdf: &Pdf) -> Edited {
+    Edited {
+        sizes: pdf.page_sizes().to_vec(),
+        bookmarks: pdf.bookmarks(),
+        modified: pdf.modified(),
+        can_undo: pdf.undo_label().is_some(),
+        can_redo: pdf.redo_label().is_some(),
+    }
+}
+
+fn ask(title: &str, text: &str) -> bool {
+    rfd::MessageDialog::new()
+        .set_title(title)
+        .set_description(text)
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+/// Ajoute « .pdf » si l'utilisateur ne l'a pas tapé.
+fn with_pdf_extension(path: PathBuf) -> PathBuf {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+        path
+    } else {
+        let mut name = path.into_os_string();
+        name.push(".pdf");
+        PathBuf::from(name)
+    }
+}
+
+fn save_dialog(title: &str, suggested: &Path) -> Option<PathBuf> {
+    let mut d = rfd::FileDialog::new().set_title(title).add_filter("Documents PDF", &["pdf"]);
+    if let Some(dir) = suggested.parent() {
+        d = d.set_directory(dir);
+    }
+    if let Some(name) = suggested.file_name() {
+        d = d.set_file_name(name.to_string_lossy());
+    }
+    d.save_file().map(with_pdf_extension)
+}
+
+fn write_error(target: &Path, e: &std::io::Error) -> String {
+    format!("Impossible d'enregistrer « {} » dans « {} » : {}.", file_name(target),
+            target.parent().map(|p| p.display().to_string()).unwrap_or_default(), reason(e))
+}
+
+impl App {
+    fn current_tab(&self) -> Option<&Tab> {
+        if self.on_home { None } else { self.tabs.get(self.current) }
+    }
+
+    pub fn has_unsaved(&self) -> bool {
+        self.tabs.iter().any(|t| t.modified)
+    }
+
+    /// Pages visées : vignettes sélectionnées, sinon la page affichée.
+    fn targets(&self) -> Vec<usize> {
+        self.current_tab().map(|t| if t.selected.is_empty() { vec![t.current] } else { t.selected.clone() })
+            .unwrap_or_default()
+    }
+
+    /// Propriétés de la fenêtre qui dépendent de l'onglet courant.
+    pub(super) fn sync_state(&mut self) {
+        let ui = self.ui();
+        let tab = self.current_tab();
+        ui.set_modified(tab.is_some_and(|t| t.modified));
+        ui.set_can_undo(tab.is_some_and(|t| t.can_undo));
+        ui.set_can_redo(tab.is_some_and(|t| t.can_redo));
+        ui.set_crop_mode(self.crop_mode);
+        let info = match tab {
+            Some(t) if !t.selected.is_empty() => format!("Pages sélectionnées : {}", edit::format_pages(&t.selected)),
+            Some(t) => format!("Page affichée : {}", t.current + 1),
+            None => String::new(),
+        };
+        ui.set_selection_info(info.into());
+    }
+
+    pub fn set_panel(&mut self, panel: i32) {
+        self.ui().set_panel(panel);
+        if panel == 1 && !self.settings.sidebar {
+            self.toggle_sidebar(); // les vignettes servent à organiser
+        }
+        self.ui().set_rail_tab(0);
+    }
+
+    pub fn action(&mut self, name: &str) {
+        let targets = self.targets();
+        match name {
+            "undo" => self.history(true),
+            "redo" => self.history(false),
+            "save" => self.save(),
+            "save-as" => self.save_as(false),
+            "save-copy" => self.save_as(true),
+            "rotate-left" => self.edit("", move |pdf| edit::rotate(pdf, &targets, -90).map(|_| Some(targets))),
+            "rotate-right" => self.edit("", move |pdf| edit::rotate(pdf, &targets, 90).map(|_| Some(targets))),
+            "delete" => self.delete_pages(targets),
+            "insert-blank" => self.insert_blank(),
+            "insert-pdf" => self.insert_pdf(),
+            "insert-images" => self.insert_images(),
+            "extract" => self.extract(targets),
+            "crop" => {
+                if self.current_tab().is_some() {
+                    self.crop_mode = true;
+                    self.sync_state();
+                    self.toast("Tracez sur la page la zone à garder (Échap pour annuler).");
+                }
+            }
+            "crop-cancel" => {
+                self.crop_mode = false;
+                if let Some(tab) = self.tab() {
+                    tab.crop = None;
+                }
+                self.sync_state();
+                self.update_view();
+            }
+            "reset-crop" => self.edit("Recadrage annulé.", move |pdf| edit::reset_crop(pdf, &targets).map(|_| Some(targets))),
+            "merge" => self.merge_start(),
+            "split" => {
+                if self.current_tab().is_some() {
+                    self.ui().invoke_show_split();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Modification du document courant dans le moteur. `op` renvoie éventuellement les
+    /// pages à sélectionner ensuite ; `done` : message affiché en cas de succès.
+    fn edit(&mut self, done: &str, op: impl FnOnce(&mut Pdf) -> Result<Option<Vec<usize>>, String> + Send + 'static) {
+        let Some(tab) = self.current_tab() else { return };
+        let id = tab.id;
+        let done = done.to_string();
+        self.engine.run(move |docs| {
+            let Some(pdf) = docs.get_mut(&id) else { return };
+            let result = op(pdf).map(|select| (state_of(pdf), select));
+            from_engine(move |app| match result {
+                Ok((state, select)) => {
+                    app.on_edited(id, state, select);
+                    if !done.is_empty() {
+                        app.toast(&done);
+                    }
+                }
+                Err(e) => app.error(&e),
+            });
+        });
+    }
+
+    fn on_edited(&mut self, id: DocId, state: Edited, select: Option<Vec<usize>>) {
+        let Some(index) = self.tabs.iter().position(|t| t.id == id) else { return };
+        let tab = &mut self.tabs[index];
+        tab.version += 1;
+        tab.thumbs.reset(&state.sizes, tab.version);
+        tab.current = tab.current.min(state.sizes.len() - 1);
+        tab.sizes = state.sizes;
+        tab.bookmarks = state.bookmarks;
+        tab.modified = state.modified;
+        tab.can_undo = state.can_undo;
+        tab.can_redo = state.can_redo;
+        tab.images.clear();
+        tab.words.clear();
+        tab.hits.clear();
+        tab.hit_index = None;
+        tab.query.clear();
+        tab.selection = None;
+        tab.crop = None;
+        tab.selected = select.unwrap_or_default().into_iter().filter(|&p| p < tab.sizes.len()).collect();
+        tab.thumbs.set_selected(&tab.selected);
+        self.pending.retain(|k| k.0 != id);
+        if index == self.current && !self.on_home {
+            self.sync_tabs();
+            self.sync_document();
+        } else {
+            self.sync_tabs();
+        }
+    }
+
+    fn history(&mut self, undo: bool) {
+        self.edit("", move |pdf| if undo { pdf.undo() } else { pdf.redo() }.map(|_| None));
+    }
+
+    // ----- vignettes : sélection, glisser pour déplacer ------------------------------------
+
+    pub fn thumb_press(&mut self, i: usize, ctrl: bool, shift: bool) {
+        let Some(tab) = self.tab() else { return };
+        if ctrl {
+            if let Some(k) = tab.selected.iter().position(|&p| p == i) {
+                tab.selected.remove(k);
+            } else {
+                tab.selected.push(i);
+            }
+            tab.anchor = Some(i);
+        } else if shift {
+            let a = tab.anchor.unwrap_or(tab.current);
+            tab.selected = (a.min(i)..=a.max(i)).collect();
+        } else if !tab.selected.contains(&i) || tab.selected.len() == 1 {
+            tab.selected = vec![i];
+            tab.anchor = Some(i);
+        }
+        tab.selected.sort_unstable();
+        tab.drag = None;
+        let selected = tab.selected.clone();
+        tab.thumbs.set_selected(&selected);
+        if !ctrl && !shift {
+            self.go_to(i);
+        }
+        self.sync_state();
+    }
+
+    /// Glisser une vignette : position de dépôt d'après le déplacement vertical (en lignes).
+    pub fn thumb_drag(&mut self, i: usize, y: f32, row: f32) {
+        let Some(tab) = self.tab() else { return };
+        if row <= 0.0 || (y >= 0.0 && y <= row) && tab.drag.is_none() {
+            return; // pas encore sorti de la vignette : simple clic
+        }
+        let target = (i as f32 + (y / row) + 0.5).floor().clamp(0.0, tab.sizes.len() as f32) as usize;
+        tab.drag = Some(target);
+        tab.thumbs.set_drop((target < tab.sizes.len()).then_some(target));
+    }
+
+    pub fn thumb_release(&mut self) {
+        let Some(tab) = self.tab() else { return };
+        let Some(target) = tab.drag.take() else { return };
+        tab.thumbs.set_drop(None);
+        let pages = if tab.selected.is_empty() { vec![tab.current] } else { tab.selected.clone() };
+        let (first, last) = (pages[0], pages[pages.len() - 1]);
+        let contiguous = last - first + 1 == pages.len();
+        if contiguous && (target >= first && target <= last + 1) {
+            return; // déposé à sa place
+        }
+        self.edit("", move |pdf| edit::move_pages(pdf, &pages, target).map(Some));
+    }
+
+    // ----- opérations ----------------------------------------------------------------------
+
+    fn delete_pages(&mut self, pages: Vec<usize>) {
+        let Some(tab) = self.current_tab() else { return };
+        if pages.len() >= tab.sizes.len() {
+            self.error("Un PDF doit garder au moins une page : sélectionnez seulement les pages à retirer.");
+            return;
+        }
+        let n = pages.len();
+        let text = format!("Supprimer {n} page{} ({}) ?\n(Ctrl+Z pour annuler)", if n > 1 { "s" } else { "" },
+                           edit::format_pages(&pages));
+        if ask("Supprimer des pages", &text) {
+            self.edit("", move |pdf| edit::delete(pdf, &pages).map(|_| None));
+        }
+    }
+
+    fn insert_at(&self) -> usize {
+        self.targets().into_iter().max().map_or(0, |p| p + 1)
+    }
+
+    fn insert_blank(&mut self) {
+        let Some(tab) = self.current_tab() else { return };
+        let at = self.insert_at();
+        let size = tab.sizes[at.saturating_sub(1).min(tab.sizes.len() - 1)]; // format de la voisine
+        self.edit("", move |pdf| edit::insert_blank(pdf, at, size).map(|_| Some(vec![at])));
+    }
+
+    fn insert_pdf(&mut self) {
+        if self.current_tab().is_none() {
+            return;
+        }
+        let Some(path) = rfd::FileDialog::new().set_title("Insérer un PDF").add_filter("Documents PDF", &["pdf"]).pick_file()
+        else { return };
+        let at = self.insert_at();
+        let name = file_name(&path);
+        // ponytail : le PDF inséré est lu sur le disque (un onglet ouvert dessus avec des
+        // modifications non enregistrées n'est pas pris en compte).
+        self.edit("", move |pdf| {
+            let data = plain_from_file(&path)?;
+            let n = edit::insert_pdf(pdf, at, &data, None, &name)?;
+            Ok(Some((at..at + n).collect()))
+        });
+    }
+
+    fn insert_images(&mut self) {
+        if self.current_tab().is_none() {
+            return;
+        }
+        let Some(paths) = rfd::FileDialog::new().set_title("Insérer des images").add_filter("Images", IMAGES).pick_files()
+        else { return };
+        let mut images = vec![];
+        for p in &paths {
+            match std::fs::read(p) {
+                Ok(d) => images.push(d),
+                Err(e) => return self.error(&format!("Impossible de lire « {} » : {}.", file_name(p), reason(&e))),
+            }
+        }
+        let at = self.insert_at();
+        let n = images.len();
+        self.edit("", move |pdf| edit::insert_images(pdf, at, &images).map(|_| Some((at..at + n).collect())));
+    }
+
+    fn extract(&mut self, pages: Vec<usize>) {
+        let Some(tab) = self.current_tab() else { return };
+        let stem = tab.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let suggested = tab.path.with_file_name(format!("{stem} - pages {}.pdf", edit::format_pages(&pages)));
+        let Some(target) = save_dialog("Enregistrer les pages extraites", &suggested) else { return };
+        let id = tab.id;
+        self.engine.run(move |docs| {
+            let result = docs.get(&id).ok_or_else(|| "document fermé".to_string())
+                .and_then(|pdf| edit::extract(pdf, &pages))
+                .and_then(|data| write_atomic(&target, &data).map_err(|e| write_error(&target, &e)));
+            from_engine(move |app| match result {
+                Ok(()) => app.open_path(target),
+                Err(e) => app.error(&e),
+            });
+        });
+    }
+
+    pub(super) fn crop_done(&mut self) {
+        self.crop_mode = false;
+        let pages = self.targets();
+        let Some(tab) = self.tab() else { return };
+        let Some((page, a, b)) = tab.crop.take() else {
+            self.sync_state();
+            return;
+        };
+        let rect = Rect::new(a.0, a.1, b.0, b.1);
+        self.sync_state();
+        self.update_view();
+        if rect.width() < 10.0 || rect.height() < 10.0 {
+            self.toast("Zone trop petite : recadrage abandonné.");
+            return;
+        }
+        let pages = if pages.contains(&page) { pages } else { vec![page] };
+        let text = format!("Garder cette zone sur {} ({}) ?\n(Ctrl+Z pour annuler)",
+                           if pages.len() > 1 { "les pages" } else { "la page" }, edit::format_pages(&pages));
+        if ask("Recadrer", &text) {
+            self.edit("", move |pdf| edit::crop(pdf, page, rect, &pages).map(|_| Some(pages)));
+        }
+    }
+
+    // ----- fusionner, scinder -----------------------------------------------------------------
+
+    fn merge_start(&mut self) {
+        self.merge_files = self.current_tab().map(|t| vec![t.path.clone()]).unwrap_or_default();
+        self.sync_merge();
+        self.ui().invoke_show_merge();
+    }
+
+    fn sync_merge(&self) {
+        let names: Vec<slint::SharedString> = self.merge_files.iter()
+            .map(|p| format!("{}   ({})", file_name(p), p.parent().map(|d| d.display().to_string()).unwrap_or_default()).into())
+            .collect();
+        self.ui().set_merge_names(ModelRc::new(VecModel::from(names)));
+    }
+
+    pub fn merge_command(&mut self, command: &str) {
+        let ui = self.ui();
+        let i = ui.get_merge_index();
+        let n = self.merge_files.len() as i32;
+        match command {
+            "add" => {
+                let picked = rfd::FileDialog::new().set_title("Ajouter des PDF").add_filter("Documents PDF", &["pdf"]).pick_files();
+                self.merge_files.extend(picked.unwrap_or_default());
+            }
+            "remove" if (0..n).contains(&i) => {
+                self.merge_files.remove(i as usize);
+                ui.set_merge_index(-1);
+            }
+            "up" if i > 0 && i < n => {
+                self.merge_files.swap(i as usize, i as usize - 1);
+                ui.set_merge_index(i - 1);
+            }
+            "down" if i >= 0 && i + 1 < n => {
+                self.merge_files.swap(i as usize, i as usize + 1);
+                ui.set_merge_index(i + 1);
+            }
+            "run" => return self.merge_run(),
+            _ => {}
+        }
+        self.sync_merge();
+    }
+
+    fn merge_run(&mut self) {
+        let files = self.merge_files.clone();
+        let Some(first) = files.first() else { return };
+        let stem = first.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let Some(target) = save_dialog("Enregistrer le PDF fusionné", &first.with_file_name(format!("{stem} - fusion.pdf")))
+        else { return };
+        // Un document ouvert est pris tel qu'affiché, modifications comprises.
+        let open: Vec<Option<DocId>> = files.iter().map(|p| self.tabs.iter().find(|t| &t.path == p).map(|t| t.id)).collect();
+        self.engine.run(move |docs| {
+            let result = (|| {
+                let mut sources = vec![];
+                for (path, id) in files.iter().zip(open) {
+                    sources.push(match id.and_then(|id| docs.get(&id)) {
+                        Some(pdf) => pdf.plain_bytes()?,
+                        None => plain_from_file(path)?,
+                    });
+                }
+                let data = edit::merge(&sources)?;
+                write_atomic(&target, &data).map_err(|e| write_error(&target, &e))
+            })();
+            from_engine(move |app| match result {
+                Ok(()) => app.open_path(target),
+                Err(e) => app.error(&e),
+            });
+        });
+    }
+
+    pub fn split_run(&mut self, every: bool, n: usize, ranges: String) {
+        let Some(tab) = self.current_tab() else { return };
+        let count = tab.sizes.len();
+        let groups = if every { Ok(edit::split_every(count, n)) } else if ranges.trim().is_empty() {
+            Err("Indiquez les plages, par exemple : 1-3, 4-10, 11-".to_string())
+        } else {
+            edit::parse_ranges(&ranges, count)
+        };
+        let groups = match groups {
+            Ok(g) => g,
+            Err(e) => return self.error(&e),
+        };
+        let Some(folder) = rfd::FileDialog::new().set_title("Dossier de destination")
+            .set_directory(tab.path.parent().unwrap_or(Path::new("."))).pick_folder() else { return };
+        let stem = tab.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let targets: Vec<PathBuf> = groups.iter()
+            .map(|g| folder.join(format!("{stem} - pages {}.pdf", edit::format_pages(g))))
+            .collect();
+        let existing = targets.iter().filter(|t| t.exists()).count();
+        if existing > 0 && !ask("Scinder", &format!("{existing} fichier(s) existe(nt) déjà dans ce dossier. Les remplacer ?")) {
+            return;
+        }
+        let id = tab.id;
+        self.engine.run(move |docs| {
+            let result = (|| {
+                let pdf = docs.get(&id).ok_or("document fermé")?;
+                for (g, t) in groups.iter().zip(&targets) {
+                    let data = edit::extract(pdf, g)?;
+                    write_atomic(t, &data).map_err(|e| write_error(t, &e))?;
+                }
+                Ok::<usize, String>(targets.len())
+            })();
+            from_engine(move |app| match result {
+                Ok(k) => {
+                    if ask("Scinder", &format!("{k} fichiers créés dans « {} ».\n\nOuvrir le dossier ?", folder.display())) {
+                        let _ = open::that(&folder);
+                    }
+                }
+                Err(e) => app.error(&e),
+            });
+        });
+    }
+
+    // ----- enregistrer, fermer, quitter -----------------------------------------------------
+
+    fn save(&mut self) {
+        let Some(tab) = self.current_tab() else { return };
+        if !tab.modified && !tab.overwrite_confirmed && tab.can_undo {
+            return;
+        }
+        if !tab.overwrite_confirmed {
+            let mut text = format!("Enregistrer dans « {} » ?\nLe fichier d'origine sera remplacé \
+                                    (Enregistrer sous… pour garder l'original).", tab.name);
+            if tab.signed {
+                text.push_str("\n\nCe document est signé : la signature ne sera plus valide.");
+            }
+            if !ask("Enregistrer", &text) {
+                return;
+            }
+        }
+        let (id, path) = (tab.id, tab.path.clone());
+        self.write(id, path, false);
+    }
+
+    fn save_as(&mut self, copy: bool) {
+        let Some(tab) = self.current_tab() else { return };
+        let suggested = if copy {
+            let stem = tab.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            tab.path.with_file_name(format!("{stem} - copie.pdf"))
+        } else {
+            tab.path.clone()
+        };
+        let title = if copy { "Enregistrer une copie" } else { "Enregistrer sous" };
+        let Some(target) = save_dialog(title, &suggested) else { return };
+        let id = tab.id;
+        self.write(id, target, copy);
+    }
+
+    /// Écrit le document `id` dans `target` (atomique) ; `copy` : le document garde son
+    /// fichier et ses modifications restent « non enregistrées ».
+    fn write(&mut self, id: DocId, target: PathBuf, copy: bool) {
+        self.engine.run(move |docs| {
+            let result = docs.get_mut(&id).ok_or_else(|| "document fermé".to_string()).and_then(|pdf| {
+                let data = pdf.bytes_for_disk()?;
+                write_atomic(&target, &data).map_err(|e| write_error(&target, &e))?;
+                if !copy {
+                    pdf.mark_saved();
+                }
+                Ok(())
+            });
+            from_engine(move |app| app.on_saved(id, target, copy, result));
+        });
+    }
+
+    fn on_saved(&mut self, id: DocId, target: PathBuf, copy: bool, result: Result<(), String>) {
+        if let Err(e) = result {
+            self.close_after_save = None;
+            self.quit_after_saves = 0;
+            return self.error(&e);
+        }
+        crate::log(&format!("Enregistré : {}", target.display()));
+        if !copy {
+            if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                tab.modified = false;
+                tab.overwrite_confirmed = true;
+                tab.name = file_name(&target);
+                tab.path = target.clone();
+            }
+            self.settings.add_recent(&target);
+            self.settings.save();
+        }
+        self.toast(&format!("{} : {}", if copy { "Copie enregistrée" } else { "Enregistré" }, target.display()));
+        self.sync_tabs();
+        if self.close_after_save == Some(id) {
+            self.close_after_save = None;
+            if let Some(i) = self.tabs.iter().position(|t| t.id == id) {
+                self.close_tab_now(i);
+            }
+        }
+        if self.quit_after_saves > 0 {
+            self.quit_after_saves -= 1;
+            if self.quit_after_saves == 0 && !self.has_unsaved() {
+                let _ = slint::quit_event_loop();
+            }
+        }
+    }
+
+    /// Fermer un onglet : s'il est modifié, Enregistrer / Ne pas enregistrer / Annuler.
+    pub fn request_close_tab(&mut self, i: usize) {
+        let Some(tab) = self.tabs.get(i) else { return };
+        if !tab.modified {
+            return self.close_tab_now(i);
+        }
+        let answer = rfd::MessageDialog::new()
+            .set_title("Modifications non enregistrées")
+            .set_description(format!("« {} » a été modifié. Enregistrer les modifications ?", tab.name))
+            .set_buttons(rfd::MessageButtons::YesNoCancelCustom("Enregistrer".into(), "Ne pas enregistrer".into(), "Annuler".into()))
+            .show();
+        match answer {
+            rfd::MessageDialogResult::Custom(c) if c == "Enregistrer" => {
+                let (id, path) = (tab.id, tab.path.clone());
+                self.close_after_save = Some(id);
+                self.write(id, path, false); // « Enregistrer » vaut confirmation
+            }
+            rfd::MessageDialogResult::Custom(c) if c == "Ne pas enregistrer" => self.close_tab_now(i),
+            _ => {}
+        }
+    }
+
+    /// Quitter : documents modifiés → Tout enregistrer / Quitter sans enregistrer / Annuler.
+    pub fn quit(&mut self) {
+        let unsaved: Vec<(DocId, PathBuf, String)> = self.tabs.iter().filter(|t| t.modified)
+            .map(|t| (t.id, t.path.clone(), t.name.clone())).collect();
+        if unsaved.is_empty() {
+            let _ = slint::quit_event_loop();
+            return;
+        }
+        let names: Vec<String> = unsaved.iter().map(|u| format!("« {} »", u.2)).collect();
+        let answer = rfd::MessageDialog::new()
+            .set_title("Modifications non enregistrées")
+            .set_description(format!("Ces documents ont été modifiés : {}.\nEnregistrer avant de quitter ?", names.join(", ")))
+            .set_buttons(rfd::MessageButtons::YesNoCancelCustom("Tout enregistrer".into(), "Quitter sans enregistrer".into(), "Annuler".into()))
+            .show();
+        match answer {
+            rfd::MessageDialogResult::Custom(c) if c == "Tout enregistrer" => {
+                self.quit_after_saves = unsaved.len();
+                for (id, path, _) in unsaved {
+                    self.write(id, path, false);
+                }
+            }
+            rfd::MessageDialogResult::Custom(c) if c == "Quitter sans enregistrer" => {
+                let _ = slint::quit_event_loop();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Contenu déchiffré d'un PDF pris sur le disque (fusion, insertion).
+fn plain_from_file(path: &Path) -> Result<Vec<u8>, String> {
+    let data = std::fs::read(path).map_err(|e| format!("Impossible de lire « {} » : {}.", file_name(path), reason(&e)))?;
+    match Pdf::open(&data) {
+        Ok(pdf) => pdf.plain_bytes(),
+        Err(OpenError::NeedsPassword) => Err(format!(
+            "« {} » est protégé par un mot de passe : ouvrez-le d'abord dans PDFManager.", file_name(path))),
+        Err(OpenError::Unreadable(e)) => Err(format!("Impossible d'ouvrir « {} » : {e}.", file_name(path))),
+    }
+}

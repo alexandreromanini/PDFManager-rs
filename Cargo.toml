@@ -1,6 +1,6 @@
 [package]
 name = "pdfmanager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Lecteur et éditeur PDF personnel (réécriture en Rust de PDFManager)"
 license = "AGPL-3.0-or-later"
@@ -27,5 +27,5 @@ winresource = "0.1.34"
 
 [profile.release]
 strip = true       # symboles de débogage retirés : exe plus léger
-lto = "thin"
-codegen-units = 4
+# Pas de LTO : la CI lie l'exécutable deux fois (tests, puis exe), ~2 min gagnées pour
+# quelques Mo de plus.

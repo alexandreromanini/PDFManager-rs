@@ -3433,6 +3433,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxifont-core"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8b97056baf721a6847472ff76ad8bfc663fe726b881fcfc6ae186e3b6af51ac"
+
+[[package]]
+name = "oxifont-parser"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "471ea7149995ca868f8ccfeadb163dd814020a7958f53b2196a82e5a42ac27b7"
+dependencies = [
+ "oxifont-core",
+ "ttf-parser",
+]
+
+[[package]]
+name = "oxifont-subset"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa12c3b706d76088020dc49cf3bde491b69b2050942914645ad91c46082b0a1f"
+dependencies = [
+ "oxifont-core",
+ "oxifont-parser",
+ "ttf-parser",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3530,12 +3557,14 @@ dependencies = [
  "interprocess",
  "mupdf",
  "open",
+ "oxifont-subset",
  "rfd",
  "serde",
  "serde_json",
  "sha2",
  "slint",
  "slint-build",
+ "ttf-parser",
  "ureq",
  "windows-sys 0.61.2",
  "winresource",

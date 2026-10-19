@@ -9,6 +9,7 @@ mod app;
 mod capture;
 mod edit;
 mod engine;
+mod fonts;
 mod forms;
 mod instance;
 mod layout;
@@ -16,6 +17,7 @@ mod pdf;
 mod print;
 mod security;
 mod settings;
+mod textedit;
 mod updates;
 
 use std::io::Write;

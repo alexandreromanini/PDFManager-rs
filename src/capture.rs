@@ -153,6 +153,27 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
             "menu" => ui.invoke_show_menu(),
+            // click:x,y (pixels logiques de la fenêtre)
+            "click" => {
+                let (x, y) = arg.split_once(',').unwrap_or(("0", "0"));
+                let position = slint::LogicalPosition::new(x.parse().unwrap_or(0.0), y.parse().unwrap_or(0.0));
+                let button = slint::platform::PointerEventButton::Left;
+                window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
+                window.dispatch_event(slint::platform::WindowEvent::PointerPressed { position, button });
+                window.dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
+            }
+            // key:Tab, key:Return, key:espace… (touche envoyée à la fenêtre)
+            "key" => {
+                let text: slint::SharedString = match arg.as_str() {
+                    "Tab" => slint::platform::Key::Tab.into(),
+                    "Return" => slint::platform::Key::Return.into(),
+                    "Escape" => slint::platform::Key::Escape.into(),
+                    "espace" => " ".into(),
+                    t => t.into(),
+                };
+                window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
+                window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
+            }
             "resize" => {
                 let (w, h) = arg.split_once(',').unwrap_or(("1280", "800"));
                 window.set_size(PhysicalSize::new(w.parse().unwrap_or(1280), h.parse().unwrap_or(800)));

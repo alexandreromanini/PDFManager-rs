@@ -20,6 +20,32 @@ export struct CommentData { page: int, label: string, author: string, date: stri
 export struct ThumbData { index: int, image: image, w: length, h: length, selected: bool, drop-before: bool }
 export struct BookmarkData { title: string, level: int, page: int }
 
+// Atteignable au clavier : Tab donne le focus (anneau visible), Entrée ou Espace active. Un
+// clic ne prend pas le focus : l'anneau n'apparaît qu'à la navigation au clavier, et les
+// raccourcis (gérés plus haut) restent actifs.
+component FocusRing inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <length> radius: 6px;
+    callback activated();
+    fs := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        key-pressed(e) => {
+            if (e.text == Key.Return || e.text == " ") { root.activated(); return accept; }
+            return reject;
+        }
+    }
+    if fs.has-focus: Rectangle {
+        x: -2px;
+        y: -2px;
+        width: root.width + 4px;
+        height: root.height + 4px;
+        border-width: 2px;
+        border-color: Theme.accent;
+        border-radius: root.radius + 2px;
+    }
+}
+
 component IconButton inherits Rectangle {
     in property <image> icon;
     in property <bool> enabled: true;
@@ -38,6 +64,7 @@ component IconButton inherits Rectangle {
     accessible-checkable: checked;
     accessible-checked: checked;
     accessible-action-default => { if enabled { root.clicked(); } }
+    FocusRing { enabled: root.enabled; activated => { root.clicked(); } }
     Image {
         source: root.icon;
         width: root.icon-size;
@@ -65,6 +92,7 @@ component PrimaryButton inherits Rectangle {
     accessible-label: label;
     accessible-enabled: enabled;
     accessible-action-default => { if enabled { root.clicked(); } }
+    FocusRing { enabled: root.enabled; activated => { root.clicked(); } }
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
@@ -93,6 +121,7 @@ component ToolRow inherits Rectangle {
     accessible-label: text;
     accessible-enabled: enabled;
     accessible-action-default => { if enabled { root.clicked(); } }
+    FocusRing { enabled: root.enabled; activated => { root.clicked(); } }
     if root.compact: VerticalLayout {
         alignment: center;
         spacing: 3px;
@@ -148,6 +177,7 @@ component DocTab inherits Rectangle {
     accessible-label: tip;
     accessible-checked: selected;
     accessible-action-default => { root.activate(); }
+    FocusRing { radius: 8px; activated => { root.activate(); } }
     ta := TouchArea { clicked => { root.activate(); } }
     HorizontalLayout {
         padding-left: 12px;
@@ -180,6 +210,7 @@ component Tile inherits Rectangle {
     accessible-checkable: true;
     accessible-checked: root.checked;
     accessible-action-default => { root.clicked(); }
+    FocusRing { activated => { root.clicked(); } }
     VerticalLayout {
         alignment: center;
         spacing: 4px;
@@ -217,6 +248,7 @@ component Swatches inherits HorizontalLayout {
         accessible-checkable: true;
         accessible-checked: i == root.current;
         accessible-action-default => { root.picked(i); }
+        FocusRing { radius: 13px; activated => { root.picked(i); } }
         TouchArea { mouse-cursor: pointer; clicked => { root.picked(i); } }
     }
 }
@@ -433,6 +465,7 @@ export component AppWindow inherits Window {
     public function focus-search() { search-field.focus(); search-field.select-all(); }
 
     keys := FocusScope {
+        focus-on-tab-navigation: false; // Tab va directement au premier bouton
         key-pressed(e) => {
             if (e.modifiers.control) {
                 if (e.text == "o" || e.text == "O") { root.open(); return accept; }
@@ -489,6 +522,7 @@ export component AppWindow inherits Window {
                             Image { source: Icons.house; colorize: Theme.accent; width: 16px; y: (parent.height - self.height) / 2; }
                             Text { text: "Accueil"; font-weight: 600; color: Theme.text; vertical-alignment: center; }
                         }
+                        FocusRing { radius: 8px; activated => { root.go-home(); } }
                         home-ta := TouchArea { mouse-cursor: pointer; clicked => { root.go-home(); } }
                     }
                     HorizontalLayout {
@@ -903,6 +937,7 @@ export component AppWindow inherits Window {
                                 }
                                 Text { text: r.when; color: Theme.text2; vertical-alignment: center; }
                             }
+                            FocusRing { radius: 8px; activated => { root.open-recent(r.path); } }
                             rta := TouchArea { mouse-cursor: pointer; clicked => { root.open-recent(r.path); } }
                         }
                     }
@@ -1357,28 +1392,31 @@ export component AppWindow inherits Window {
                     border-radius: 4px;
                     background: mta.has-hover ? Theme.hover : transparent;
                     Text { x: 10px; text: item.label; color: Theme.text; vertical-alignment: center; }
-                    mta := TouchArea {
-                        clicked => {
-                            if (item.action == "open") { root.open(); }
-                            if (item.action == "save" || item.action == "save-as" || item.action == "save-copy"
-                                || item.action == "undo" || item.action == "redo" || item.action == "print"
-                                || item.action == "properties" || item.action == "check-updates") { root.action(item.action); }
-                            if (item.action == "close") { root.close-tab(root.current-tab); }
-                            if (item.action == "home") { root.go-home(); }
-                            if (item.action == "sidebar") { root.toggle-sidebar(); }
-                            if (item.action == "fullscreen") { root.toggle-fullscreen(); }
-                            if (item.action == "rotate-view") { root.rotate(90); }
-                            if (item.action == "theme-system") { root.set-theme("system"); }
-                            if (item.action == "theme-light") { root.set-theme("light"); }
-                            if (item.action == "theme-dark") { root.set-theme("dark"); }
-                            if (item.action == "about") { about.show(); }
-                            if (item.action == "quit") { root.quit(); }
-                        }
-                    }
+                    accessible-role: button;
+                    accessible-label: item.label;
+                    accessible-action-default => { menu.close(); root.menu-run(item.action); }
+                    FocusRing { radius: 4px; activated => { menu.close(); root.menu-run(item.action); } }
+                    mta := TouchArea { clicked => { root.menu-run(item.action); } }
                 }
             }
             }
         }
+    }
+
+    function menu-run(action: string) {
+        if (action == "open") { root.open(); }
+        if (action == "save" || action == "save-as" || action == "save-copy" || action == "undo" || action == "redo"
+            || action == "print" || action == "properties" || action == "check-updates") { root.action(action); }
+        if (action == "close") { root.close-tab(root.current-tab); }
+        if (action == "home") { root.go-home(); }
+        if (action == "sidebar") { root.toggle-sidebar(); }
+        if (action == "fullscreen") { root.toggle-fullscreen(); }
+        if (action == "rotate-view") { root.rotate(90); }
+        if (action == "theme-system") { root.set-theme("system"); }
+        if (action == "theme-light") { root.set-theme("light"); }
+        if (action == "theme-dark") { root.set-theme("dark"); }
+        if (action == "about") { about.show(); }
+        if (action == "quit") { root.quit(); }
     }
 
     about := PopupWindow {

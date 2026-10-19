@@ -266,7 +266,7 @@ impl App {
     }
 
     fn info(&self, title: &str, text: &str) {
-        rfd::MessageDialog::new().set_title(title).set_description(text).set_level(rfd::MessageLevel::Info).show();
+        crate::dialogs::info(title, text);
     }
 
     fn offer_update(&mut self, r: updates::Release) {
@@ -417,5 +417,29 @@ impl App {
             let done = textedit::clean(pdf, metadata, javascript, attachments, thumbnails)?;
             Ok((Some(keep), format!("Nettoyé : {} (effectif à l'enregistrement).", done.join(", "))))
         });
+    }
+}
+
+impl App {
+    /// Mot de passe des permissions saisi (fenêtre « Retirer la protection »).
+    pub fn owner_password(&mut self, password: String) {
+        self.unprotect(Some(password));
+    }
+
+    /// Mode capture : état de l'application sur la sortie d'erreur (vérifié par l'audit).
+    pub fn dump_state(&mut self) {
+        let current = self.current;
+        let on_home = self.on_home;
+        for (i, t) in self.tabs.iter().enumerate() {
+            eprintln!("ETAT : onglet {i}{} « {} » pages={} modifié={} annuler={} rétablir={} commentaires={} champs={} \
+                       signé={} page={} zoom={:.2} rotation={} sélection={:?} recherche={}/{}",
+                      if i == current && !on_home { "*" } else { "" }, t.name, t.sizes.len(), t.modified, t.can_undo, t.can_redo,
+                      t.comments.len(), t.fields.len(), t.signed, t.current + 1, t.zoom, t.rotation, t.selected,
+                      t.hit_index.map_or(0, |h| h + 1), t.hits.len());
+        }
+        let ui = self.ui();
+        eprintln!("ETAT : accueil={} outil=« {} » panneau={} rail={} signatures={} différences={} comm.rail={}",
+                  on_home, self.tool, ui.get_panel(), ui.get_rail_tab(), slint::Model::row_count(&ui.get_sigs()),
+                  slint::Model::row_count(&ui.get_diffs()), slint::Model::row_count(&ui.get_comments()));
     }
 }

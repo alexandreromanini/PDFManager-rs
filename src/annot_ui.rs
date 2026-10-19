@@ -544,9 +544,7 @@ impl App {
         if self.tab().is_none() {
             return;
         }
-        let Some(path) = rfd::FileDialog::new().set_title("Ajouter une image")
-            .add_filter("Images", &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"]).pick_file()
-        else { return };
+        let Some(path) = crate::dialogs::pick_file("Ajouter une image", ("Images", &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"]), None) else { return };
         match std::fs::read(&path) {
             Ok(data) => {
                 self.pending_image = Some(data);

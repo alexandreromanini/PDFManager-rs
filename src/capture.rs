@@ -93,7 +93,69 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "sleep" => pump(&queue, arg.parse().unwrap_or(1000)),
             "ask" => app::with_app(move |a| a.ai_ask(arg)),
             "compare" => app::with_app(move |a| a.compare_with(std::path::PathBuf::from(arg))),
+            // Parcours complets (audit) : un appel du contrôleur par commande.
+            "tab" => app::with_app(move |a| a.select_tab(arg.parse().unwrap_or(0))),
+            "close" => app::with_app(move |a| a.request_close_tab(arg.parse().unwrap_or(0))),
+            "quit" => app::with_app(|a| a.quit()),
+            "merge" => app::with_app(move |a| a.merge_command(&arg)),
+            "split" => app::with_app(move |a| a.split_run(false, 1, arg)),
+            "split-every" => app::with_app(move |a| a.split_run(true, arg.parse().unwrap_or(1), String::new())),
+            // protect:ouverture,propriétaire,imprimer,copier,commenter,modifier (1/0)
+            "protect" => {
+                let v: Vec<String> = arg.split(',').map(String::from).collect();
+                let b = |k: usize| v.get(k).is_some_and(|x| x == "1");
+                let allow = [b(2), b(3), b(4), b(5)];
+                let (o, w) = (v.first().cloned().unwrap_or_default(), v.get(1).cloned().unwrap_or_default());
+                app::with_app(move |a| a.protect_run(o.clone(), o, w.clone(), w, allow));
+            }
+            "unprotect" => app::with_app(move |a| a.owner_password(arg)),
+            "note" => app::with_app(move |a| a.note_done(arg)),
+            "choice" => app::with_app(move |a| a.choice_picked(arg.parse().unwrap_or(0))),
+            // prop:index=texte
+            "prop" => {
+                let (i, t) = arg.split_once('=').unwrap_or(("0", ""));
+                let (i, t) = (i.parse().unwrap_or(0), t.to_string());
+                app::with_app(move |a| a.prop_edited(i, t));
+            }
+            "props-save" => app::with_app(|a| a.props_save()),
+            "clean" => app::with_app(|a| a.clean_run(true, true, true, true)),
+            "ocr" => app::with_app(move |a| a.ocr_run(0, arg, false)),
+            "export-images" => app::with_app(move |a| a.export_images_run(false, 72, arg)),
+            "compress" => app::with_app(move |a| a.compress_run(arg.parse().unwrap_or(0))),
+            // digital:fichier.pfx,mot de passe
+            "digital" => {
+                let (f, pw) = arg.split_once(',').unwrap_or((&arg, ""));
+                let (f, pw) = (f.to_string(), pw.to_string());
+                app::with_app(move |a| a.digital_run(f, pw, "Audit".into(), "Ici".into(), false, String::new(), 0));
+            }
+            "sig-typed" => app::with_app(move |a| {
+                a.sig_typed(arg);
+                a.sig_save(1, 400.0, 150.0);
+            }),
+            "sig-place" => app::with_app(move |a| a.sig_place(arg.parse().unwrap_or(0))),
+            "sig-delete" => app::with_app(move |a| a.sig_delete(arg.parse().unwrap_or(0))),
+            "trust" => app::with_app(move |a| a.sig_trust(arg.parse().unwrap_or(0))),
+            "version" => app::with_app(move |a| a.sig_signed_version(arg.parse().unwrap_or(0))),
+            "diff" => app::with_app(move |a| a.diff_clicked(arg.parse().unwrap_or(0))),
+            "comment" => app::with_app(move |a| a.comment_clicked(arg.parse().unwrap_or(0))),
+            "comment-delete" => app::with_app(move |a| a.comment_delete(arg.parse().unwrap_or(0))),
+            "thumb" => app::with_app(move |a| a.thumb_press(arg.parse().unwrap_or(0), false, false)),
+            "zoom" => app::with_app(move |a| a.zoom_entered(&arg)),
+            "rotate" => app::with_app(move |a| a.rotate(arg.parse().unwrap_or(90))),
+            "mode" => app::with_app(move |a| a.set_mode(arg.parse().unwrap_or(0))),
+            "fit" => app::with_app(move |a| a.set_fit(arg.parse().unwrap_or(1))),
+            "copy" => app::with_app(|a| a.copy()),
+            "drop" => app::with_app(move |a| a.dropped(std::path::PathBuf::from(arg))),
+            "open" => app::with_app(move |a| a.open_path(std::path::PathBuf::from(arg))),
+            "author" => app::with_app(move |a| a.set_author(arg)),
             "color" => app::with_app(move |a| a.pick_color(false, arg.parse().unwrap_or(0))),
+            "text-color" => app::with_app(move |a| a.pick_color(true, arg.parse().unwrap_or(0))),
+            "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
+            "etat" => app::with_app(|a| a.dump_state()),
+            "password" => app::with_app(move |a| a.password_entered(arg)),
+            "password-cancel" => app::with_app(|a| a.password_cancelled()),
+            "step" => app::with_app(move |a| a.step_page(arg.parse().unwrap_or(1))),
+            "search-step" => app::with_app(move |a| a.search_step(arg.parse().unwrap_or(1))),
             "type" => ui.set_editor_text(arg.into()),
             // drag:page,x0,y0,x1,y1 (pixels de la page affichée)
             "drag" => {

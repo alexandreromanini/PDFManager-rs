@@ -86,8 +86,9 @@ const MAX_RENDER_PIXELS: f32 = 40_000_000.0;
 /// ponytail : plafond fixe ; à rendre proportionnel à la taille du fichier si besoin.
 pub const MAX_UNDO: usize = 30;
 
-/// Un état du document : libellé de l'opération, contenu, identifiant de l'état.
-type Snapshot = (String, Vec<u8>, u64);
+/// Un état du document : libellé de l'opération, contenu, identifiant de l'état, mot de
+/// passe (la protection fait partie de l'historique).
+type Snapshot = (String, Vec<u8>, u64, Option<String>);
 
 pub struct Pdf {
     doc: PdfDocument,
@@ -166,8 +167,10 @@ impl Pdf {
 
     /// Contenu déchiffré (pour fusionner ou insérer dans un autre document).
     pub fn plain_bytes(&self) -> Result<Vec<u8>, String> {
+        let mut opts = PdfWriteOptions::default();
+        opts.set_encryption(Encryption::None); // par défaut, MuPDF garderait le chiffrement
         let mut out = vec![];
-        self.doc.write_to(&mut out).map_err(|e| e.to_string())?;
+        self.doc.write_to_with_options(&mut out, opts).map_err(|e| e.to_string())?;
         Ok(out)
     }
 
@@ -199,7 +202,7 @@ impl Pdf {
             self.reload(&before)?;
             return Err(e);
         }
-        self.undo.push((label.to_string(), before, self.state));
+        self.undo.push((label.to_string(), before, self.state, self.password.clone()));
         if self.undo.len() > MAX_UNDO {
             self.undo.remove(0);
         }
@@ -207,6 +210,48 @@ impl Pdf {
         self.state = self.next_state;
         self.next_state += 1;
         Ok(())
+    }
+
+    /// Remplace tout le document (chiffrement, déchiffrement), en une étape annulable.
+    pub fn swap(&mut self, label: &str, data: &[u8], password: Option<String>) -> Result<(), String> {
+        let before = self.bytes()?;
+        let old = std::mem::replace(&mut self.password, password);
+        if let Err(e) = self.reload(data) {
+            self.password = old;
+            self.reload(&before)?;
+            return Err(e);
+        }
+        self.undo.push((label.to_string(), before, self.state, old));
+        if self.undo.len() > MAX_UNDO {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+        self.state = self.next_state;
+        self.next_state += 1;
+        Ok(())
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.doc.metadata(mupdf::MetadataName::Encryption).is_ok_and(|e| !e.is_empty() && e != "None")
+    }
+
+    pub fn permissions(&self) -> mupdf::pdf::Permission {
+        self.doc.permissions()
+    }
+
+    /// Essaie `password` comme mot de passe des permissions (sur une copie : un essai raté
+    /// sur le document lui-même le rendrait illisible). Réussi : le document le retient.
+    pub fn unlock_owner(&mut self, password: &str) -> bool {
+        let Ok(data) = self.bytes() else { return false };
+        let Ok(mut trial) = PdfDocument::from_bytes(&data) else { return false };
+        if !trial.authenticate(password).unwrap_or(false) || !trial.permissions().is_all() {
+            return false;
+        }
+        let ok = self.doc.authenticate(password).unwrap_or(false);
+        if ok {
+            self.password = Some(password.to_string());
+        }
+        ok
     }
 
     pub fn undo_label(&self) -> Option<&str> {
@@ -218,16 +263,16 @@ impl Pdf {
     }
 
     pub fn undo(&mut self) -> Result<(), String> {
-        let Some((label, data, state)) = self.undo.pop() else { return Ok(()) };
-        self.redo.push((label, self.bytes()?, self.state));
+        let Some((label, data, state, password)) = self.undo.pop() else { return Ok(()) };
+        self.redo.push((label, self.bytes()?, self.state, std::mem::replace(&mut self.password, password)));
         self.reload(&data)?;
         self.state = state;
         Ok(())
     }
 
     pub fn redo(&mut self) -> Result<(), String> {
-        let Some((label, data, state)) = self.redo.pop() else { return Ok(()) };
-        self.undo.push((label, self.bytes()?, self.state));
+        let Some((label, data, state, password)) = self.redo.pop() else { return Ok(()) };
+        self.undo.push((label, self.bytes()?, self.state, std::mem::replace(&mut self.password, password)));
         self.reload(&data)?;
         self.state = state;
         Ok(())

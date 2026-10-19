@@ -21,7 +21,7 @@ usages.
 | 5 | Modifier le texte existant, caviardage | ✅ 0.5.0 |
 | 6 | OCR, assistant IA, conversions | ✅ 0.6.0 |
 | 7 | Signatures, comparaison | ✅ 0.7.0 |
-| Audit | Tests de bout en bout, 20 corrections (voir [AUDIT.md](AUDIT.md)) | ✅ |
+| Audit | Tests de bout en bout, 23 corrections (voir [AUDIT.md](AUDIT.md)) | ✅ 0.7.1 |
 
 ## Fonctions (phase 1)
 
@@ -29,9 +29,12 @@ usages.
 - Onglets, une seule fenêtre : un PDF ouvert depuis l'Explorateur arrive en onglet.
 - Vue fluide : rendu en arrière-plan (thread moteur), seules les pages visibles sont
   dessinées ; modes continu, page unique, double page ; zoom (Ctrl+molette, Ctrl+/-),
-  ajuster à la largeur (Ctrl+2) ou à la page (Ctrl+0) ; pivoter l'affichage.
+  ajuster à la largeur (Ctrl+2) ou à la page (Ctrl+0) ; pivoter l'affichage (menu).
 - Rail de droite : vignettes (rendues à la demande), signets.
 - Recherche (Ctrl+F, F3 / Maj+F3), surlignage, compteur « 3 / 12 ».
+- Au clavier : Tab parcourt boutons et outils (anneau de focus), Entrée ou Espace active.
+- Fenêtre étroite (sous 1000 px) : catalogue d'outils en colonne d'icônes, barre du document
+  allégée, Enregistrer et le menu toujours visibles.
 - Sélection du texte à la souris, Ctrl+C.
 - Liens : vers une page, ou web / e-mail après confirmation (les autres sont refusés).
 - Mots de passe (3 essais), thème clair / sombre / système, plein écran (F11),
@@ -141,7 +144,7 @@ cargo run --release -- fichier.pdf
 cargo test --release
 # Captures d'écran hors écran (développement) :
 cargo run --release --features capture -- --capture sortie.ppm 1280 820 light fichier.pdf -- search:mot
-# Parcours de bout en bout (125 scénarios, l'appli pilotée hors écran ; pip install pymupdf) :
+# Parcours de bout en bout (129 scénarios, l'appli pilotée hors écran ; pip install pymupdf) :
 cargo build --release --features capture && python tests/parcours.py
 ```
 

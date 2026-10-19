@@ -1,0 +1,58 @@
+// Thème « Windows 11 épuré », accent rouge PDF : mêmes couleurs que la version Python
+// (ui/theme.py), en clair et en sombre. Icônes Lucide 0.460.0 (licence ISC).
+
+export global Theme {
+    in-out property <bool> dark: false;
+    out property <color> window: dark ? #202020 : #F3F3F3;
+    out property <color> layer: dark ? #272727 : #FFFFFF;
+    out property <color> layer-alt: dark ? #2B2B2B : #FAFAFA;
+    out property <color> border: dark ? #333333 : #E5E5E5;
+    out property <color> border-strong: dark ? #4A4A4A : #CFCFCF;
+    out property <color> control: dark ? #2D2D2D : #FFFFFF;
+    out property <color> control-border: dark ? #3D3D3D : #DEDEDE;
+    out property <color> text: dark ? #F2F2F2 : #1B1B1B;
+    out property <color> text2: dark ? #ABABAB : #5F5F5F;
+    out property <color> text3: dark ? #6E6E6E : #9A9A9A;
+    out property <color> hover: dark ? #ffffff10 : #0000000d;
+    out property <color> pressed: dark ? #ffffff1a : #00000017;
+    out property <color> accent: dark ? #FF6F61 : #D93A2B;
+    out property <color> accent-hover: dark ? #FF8A7E : #C2301F;
+    out property <color> accent-text: dark ? #1B1B1B : #FFFFFF;
+    out property <color> accent-soft: dark ? #4A2D2A : #FBE7E5;
+    out property <color> accent-on-soft: dark ? #FF8A7E : #B02A1C;
+    out property <color> canvas: dark ? #1A1A1A : #EBEBEE;
+    out property <color> icon: dark ? #D6D6D6 : #3A3A3A;
+    out property <color> toast: dark ? #F2F2F2 : #2B2B2B;
+    out property <color> toast-text: dark ? #1B1B1B : #FFFFFF;
+    out property <color> hit: #ffd2006e;
+    out property <color> current-hit: #ff780096;
+    out property <color> selection: #0078d75a;
+}
+
+export global Icons {
+    out property <image> logo: @image-url("../resources/logo/pdfmanager.svg");
+    out property <image> house: @image-url("../resources/icons/house.svg");
+    out property <image> plus: @image-url("../resources/icons/plus.svg");
+    out property <image> search: @image-url("../resources/icons/search.svg");
+    out property <image> sun: @image-url("../resources/icons/sun.svg");
+    out property <image> moon: @image-url("../resources/icons/moon.svg");
+    out property <image> ellipsis: @image-url("../resources/icons/ellipsis.svg");
+    out property <image> close: @image-url("../resources/icons/x.svg");
+    out property <image> chevron-left: @image-url("../resources/icons/chevron-left.svg");
+    out property <image> chevron-right: @image-url("../resources/icons/chevron-right.svg");
+    out property <image> chevron-up: @image-url("../resources/icons/chevron-up.svg");
+    out property <image> chevron-down: @image-url("../resources/icons/chevron-down.svg");
+    out property <image> zoom-in: @image-url("../resources/icons/zoom-in.svg");
+    out property <image> zoom-out: @image-url("../resources/icons/zoom-out.svg");
+    out property <image> fit-width: @image-url("../resources/icons/scaling.svg");
+    out property <image> fit-page: @image-url("../resources/icons/maximize.svg");
+    out property <image> rotate-left: @image-url("../resources/icons/rotate-ccw.svg");
+    out property <image> rotate-right: @image-url("../resources/icons/rotate-cw.svg");
+    out property <image> pages: @image-url("../resources/icons/files.svg");
+    out property <image> bookmark: @image-url("../resources/icons/bookmark.svg");
+    out property <image> file-up: @image-url("../resources/icons/file-up.svg");
+    out property <image> folder-open: @image-url("../resources/icons/folder-open.svg");
+    out property <image> file: @image-url("../resources/icons/file-text.svg");
+    out property <image> panel: @image-url("../resources/icons/panel-top.svg");
+    out property <image> info: @image-url("../resources/icons/info.svg");
+}

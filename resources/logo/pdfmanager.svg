@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- P-page : un P blanc dont la boucle est une feuille au coin plié, sur le carré rouge -->
+  <rect x="16" y="16" width="224" height="224" rx="56" fill="#D93A2B"/>
+  <g transform="translate(-4 0)">
+    <path fill-rule="evenodd" fill="#FFFFFF" d="M84 56H150L188 94V124A30 30 0 0 1 158 154H116V192A8 8 0 0 1 108 200H84A8 8 0 0 1 76 192V64A8 8 0 0 1 84 56ZM116 96H144A10 10 0 0 1 154 106V114A10 10 0 0 1 144 124H116Z"/>
+    <path fill="#F4B3AA" d="M150 56V82A12 12 0 0 0 162 94H188Z"/>
+  </g>
+</svg>

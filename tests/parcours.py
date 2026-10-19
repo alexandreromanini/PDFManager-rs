@@ -452,6 +452,20 @@ def g_bords():
     objs = [a.rect for a in p.annots()] + [w.rect for w in p.widgets()] + [pymupdf.Rect(i["bbox"]) for i in p.get_image_info()]
     check("A6 objets posés d'un clic au coin : dans la page", len(objs) == 5 and all(page.contains(r) for r in objs), str(objs))
 
+# ----- 9. clavier et souris (fenêtre réelle : touches et clics envoyés) ---------------------
+def g_clavier():
+    f = fresh("clavier.pdf")
+    log, code, dt = run([f], ["key:Tab"] * 8 + ["key:Return", "etat"])
+    check("A7 au clavier : 8 Tab puis Entrée ouvrent « Organiser les pages »", any("panneau=1" in x for x in etat(log)), str(etat(log)))
+    log, code, dt = run([f], ["tool:note", "key:Tab", "key:Tab", "key:Escape", "etat"])
+    check("A8 bouton au focus : Échap atteint toujours les raccourcis", any("outil=«  »" in x for x in etat(log)), str(etat(log)))
+    log, code, dt = run([f], ["click:100,108", "etat", "click:1256,158", "etat", "click:120,26", "etat"])
+    e = [x for x in etat(log) if x.startswith("accueil")]
+    check("A9 clics souris : catalogue, panneau latéral, Accueil",
+          "panneau=1" in e[0] and "rail=1" in e[1] and "accueil=true" in e[2], str(e))
+    log, code, dt = run([f], ["resize:720,640", "etat"])
+    check("A10 fenêtre redimensionnée à 720 px : pas d'erreur", not lines(log, "ERREUR") and "panicked" not in log, log[-300:])
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

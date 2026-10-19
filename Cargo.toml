@@ -11,6 +11,7 @@ chrono = "0.4.45"
 dirs = "7.0.0"
 interprocess = "2.4.6"
 jpeg-encoder = "0.7.1"
+llama-cpp-2 = { version = "0.1.160", default-features = false }
 mupdf = "0.8"
 open = "5.4.4"
 oxifont-subset = "0.2"

@@ -71,27 +71,34 @@ pub fn folder() -> PathBuf {
     std::env::temp_dir().join("PDFManager-rs-update")
 }
 
-/// Télécharge l'installeur (via un fichier .part), taille et empreinte vérifiées : un
-/// fichier tronqué ou altéré n'est jamais gardé. `progress(Mo reçus, Mo au total)`.
-pub fn download(release: &Release, mut progress: impl FnMut(u64, u64)) -> Result<PathBuf, String> {
+/// Télécharge l'installeur, vérifié. `progress(Mo reçus, Mo au total)`.
+pub fn download(release: &Release, progress: impl FnMut(u64, u64)) -> Result<PathBuf, String> {
     let dir = folder();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     for old in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
         let _ = std::fs::remove_file(old.path());
     }
     let target = dir.join(format!("PDFManager-rs-{}-setup.exe", release.version));
-    let part = target.with_extension("exe.part");
-    let result = fetch(release, &part, &mut progress);
+    fetch(&release.url, release.size, release.sha256.as_deref(), &target, progress)?;
+    Ok(target)
+}
+
+/// Télécharge `url` vers `target` (via un fichier .part), taille et empreinte vérifiées :
+/// un fichier tronqué ou altéré n'est jamais gardé.
+pub fn fetch(url: &str, size: u64, sha256: Option<&str>, target: &Path, mut progress: impl FnMut(u64, u64))
+             -> Result<(), String> {
+    let part = target.with_extension(format!("{}.part", target.extension().map(|e| e.to_string_lossy()).unwrap_or_default()));
+    let result = fetch_part(url, size, sha256, &part, &mut progress);
     if let Err(e) = result {
         let _ = std::fs::remove_file(&part);
         return Err(e);
     }
-    std::fs::rename(&part, &target).map_err(|e| e.to_string())?;
-    Ok(target)
+    std::fs::rename(&part, target).map_err(|e| e.to_string())
 }
 
-fn fetch(release: &Release, part: &Path, progress: &mut impl FnMut(u64, u64)) -> Result<(), String> {
-    let mut resp = ureq::get(&release.url).header("User-Agent", &agent()).call().map_err(|e| e.to_string())?;
+fn fetch_part(url: &str, size: u64, sha256: Option<&str>, part: &Path, progress: &mut impl FnMut(u64, u64))
+              -> Result<(), String> {
+    let mut resp = ureq::get(url).header("User-Agent", &agent()).call().map_err(|e| e.to_string())?;
     let mut reader = resp.body_mut().as_reader();
     let mut out = std::fs::File::create(part).map_err(|e| e.to_string())?;
     let (mut sha, mut done, mut buf) = (Sha256::new(), 0u64, vec![0u8; 256 * 1024]);
@@ -102,19 +109,19 @@ fn fetch(release: &Release, part: &Path, progress: &mut impl FnMut(u64, u64)) ->
             break;
         }
         done += n as u64;
-        if done > release.size {
+        if done > size {
             break; // plus long qu'annoncé : refusé plus bas
         }
         out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
         sha.update(&buf[..n]);
         if done >> 20 != shown {
             shown = done >> 20;
-            progress(shown, (release.size >> 20).max(1));
+            progress(shown, (size >> 20).max(1));
         }
     }
     out.flush().map_err(|e| e.to_string())?;
     let digest: String = sha.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    if done != release.size || release.sha256.as_ref().is_some_and(|s| *s != digest) {
+    if done != size || sha256.is_some_and(|s| !s.eq_ignore_ascii_case(&digest)) {
         return Err("Le fichier téléchargé est incomplet ou altéré ; réessayez plus tard.".into());
     }
     Ok(())

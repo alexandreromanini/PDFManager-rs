@@ -1,9 +1,10 @@
 //! Document PDF : ouverture (fichier lu en mémoire), mot de passe, rendu, mots, recherche,
-//! signets. Sans interface. Un document MuPDF reste dans le thread qui l'a ouvert : ce
+//! signets, modifications annulables (historique par instantanés). Sans interface. Un document MuPDF reste dans le thread qui l'a ouvert : ce
 //! module n'est utilisé que par le thread moteur (`engine`), les tests et l'autotest.
 
 use mupdf::text_page::TextPageFlags;
-use mupdf::{Colorspace, Document, Matrix, Outline, TextExtractOptions};
+use mupdf::pdf::{Encryption, PdfDocument, PdfWriteOptions};
+use mupdf::{Colorspace, Matrix, Outline, TextExtractOptions};
 
 /// Rectangle en points, repère de la page affichée (rotation /Rotate comprise).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -81,9 +82,24 @@ pub struct Rendered {
 /// zooms extrêmes plutôt que de saturer la mémoire), comme dans la version Python.
 const MAX_RENDER_PIXELS: f32 = 40_000_000.0;
 
+/// Nombre d'étapes d'annulation gardées (chacune est une copie du document en mémoire).
+/// ponytail : plafond fixe ; à rendre proportionnel à la taille du fichier si besoin.
+pub const MAX_UNDO: usize = 30;
+
+/// Un état du document : libellé de l'opération, contenu, identifiant de l'état.
+type Snapshot = (String, Vec<u8>, u64);
+
 pub struct Pdf {
-    doc: Document,
+    doc: PdfDocument,
     sizes: Vec<(f32, f32)>,
+    password: Option<String>,
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
+    state: u64,
+    next_state: u64,
+    saved_state: Option<u64>,
+    /// Fichier signé numériquement : l'enregistrer le réécrit et invalide la signature.
+    pub signed: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -104,24 +120,120 @@ impl Pdf {
                 "ce n'est pas un PDF valide, ou il est trop endommagé pour être lu ({e})"
             ))
         };
-        let mut doc = Document::from_bytes(data, "application/pdf").map_err(unreadable)?;
-        if doc.needs_password().map_err(unreadable)? {
-            let Some(pw) = password else { return Err(OpenError::NeedsPassword) };
-            if !doc.authenticate(pw).map_err(unreadable)? {
-                return Err(OpenError::NeedsPassword);
-            }
-        }
-        let count = doc.page_count().map_err(unreadable)?;
+        let doc = open_pdf(data, password).map_err(|e| match e {
+            OpenFailure::Password => OpenError::NeedsPassword,
+            OpenFailure::Mupdf(e) => unreadable(e),
+        })?;
+        let mut pdf = Pdf {
+            doc,
+            sizes: vec![],
+            password: password.map(String::from),
+            undo: vec![],
+            redo: vec![],
+            state: 0,
+            next_state: 1,
+            saved_state: Some(0),
+            signed: data.windows(10).any(|w| w == b"/ByteRange"),
+        };
+        pdf.refresh_sizes().map_err(OpenError::Unreadable)?;
+        Ok(pdf)
+    }
+
+    fn refresh_sizes(&mut self) -> Result<(), String> {
+        let count = self.doc.page_count().map_err(|e| e.to_string())?;
         let mut sizes = Vec::with_capacity(count.max(0) as usize);
         for i in 0..count {
-            let b = doc.load_page(i).and_then(|p| p.bounds()).map_err(unreadable)?;
+            let b = self.doc.load_page(i).and_then(|p| p.bounds()).map_err(|e| e.to_string())?;
             sizes.push((b.x1 - b.x0, b.y1 - b.y0));
         }
         if sizes.is_empty() {
-            return Err(OpenError::Unreadable("le document ne contient aucune page".into()));
+            return Err("le document ne contient aucune page".into());
         }
-        Ok(Pdf { doc, sizes })
+        self.sizes = sizes;
+        Ok(())
     }
+
+    // ----- modifications et historique ------------------------------------------------------
+
+    /// Le document tel qu'il serait enregistré (chiffrement d'origine conservé).
+    pub fn bytes(&self) -> Result<Vec<u8>, String> {
+        let mut opts = PdfWriteOptions::default();
+        opts.set_encryption(Encryption::Keep);
+        let mut out = vec![];
+        self.doc.write_to_with_options(&mut out, opts).map_err(|e| e.to_string())?;
+        Ok(out)
+    }
+
+    /// Version à écrire sur le disque : objets inutiles retirés (pages supprimées…).
+    pub fn bytes_for_disk(&self) -> Result<Vec<u8>, String> {
+        let copy = Pdf::open_with_password(&self.bytes()?, self.password.as_deref())
+            .map_err(|e| format!("{e:?}"))?;
+        let mut opts = PdfWriteOptions::default();
+        opts.set_encryption(Encryption::Keep).set_garbage_level(1).set_compress(true);
+        let mut out = vec![];
+        copy.doc.write_to_with_options(&mut out, opts).map_err(|e| e.to_string())?;
+        Ok(out)
+    }
+
+    fn reload(&mut self, data: &[u8]) -> Result<(), String> {
+        self.doc = open_pdf(data, self.password.as_deref()).map_err(|e| match e {
+            OpenFailure::Password => "mot de passe refusé".to_string(),
+            OpenFailure::Mupdf(e) => e.to_string(),
+        })?;
+        self.refresh_sizes()
+    }
+
+    /// Applique `f` au document, en une étape annulable. En cas d'erreur, le document
+    /// revient exactement à son état d'avant.
+    pub fn edit(&mut self, label: &str, f: impl FnOnce(&mut PdfDocument) -> Result<(), String>)
+                -> Result<(), String> {
+        let before = self.bytes()?;
+        if let Err(e) = f(&mut self.doc).and_then(|_| self.refresh_sizes()) {
+            self.reload(&before)?;
+            return Err(e);
+        }
+        self.undo.push((label.to_string(), before, self.state));
+        if self.undo.len() > MAX_UNDO {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+        self.state = self.next_state;
+        self.next_state += 1;
+        Ok(())
+    }
+
+    pub fn undo_label(&self) -> Option<&str> {
+        self.undo.last().map(|s| s.0.as_str())
+    }
+
+    pub fn redo_label(&self) -> Option<&str> {
+        self.redo.last().map(|s| s.0.as_str())
+    }
+
+    pub fn undo(&mut self) -> Result<(), String> {
+        let Some((label, data, state)) = self.undo.pop() else { return Ok(()) };
+        self.redo.push((label, self.bytes()?, self.state));
+        self.reload(&data)?;
+        self.state = state;
+        Ok(())
+    }
+
+    pub fn redo(&mut self) -> Result<(), String> {
+        let Some((label, data, state)) = self.redo.pop() else { return Ok(()) };
+        self.undo.push((label, self.bytes()?, self.state));
+        self.reload(&data)?;
+        self.state = state;
+        Ok(())
+    }
+
+    pub fn modified(&self) -> bool {
+        self.saved_state != Some(self.state)
+    }
+
+    pub fn mark_saved(&mut self) {
+        self.saved_state = Some(self.state);
+    }
+
 
     pub fn page_count(&self) -> usize {
         self.sizes.len()
@@ -211,6 +323,22 @@ impl Pdf {
 
 /// Mots sélectionnés en faisant glisser la souris de `a` à `b` (points de la page) : du mot
 /// le plus proche du départ à celui le plus proche de l'arrivée, dans l'ordre de lecture.
+enum OpenFailure {
+    Password,
+    Mupdf(mupdf::Error),
+}
+
+fn open_pdf(data: &[u8], password: Option<&str>) -> Result<PdfDocument, OpenFailure> {
+    let mut doc = PdfDocument::from_bytes(data).map_err(OpenFailure::Mupdf)?;
+    if doc.needs_password().map_err(OpenFailure::Mupdf)? {
+        let Some(pw) = password else { return Err(OpenFailure::Password) };
+        if !doc.authenticate(pw).map_err(OpenFailure::Mupdf)? {
+            return Err(OpenFailure::Password);
+        }
+    }
+    Ok(doc)
+}
+
 pub fn select_words(words: &[Word], a: (f32, f32), b: (f32, f32)) -> Vec<Word> {
     if words.is_empty() {
         return vec![];

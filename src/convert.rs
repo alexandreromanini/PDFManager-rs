@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use mupdf::pdf::{Encryption, PdfDocument, PdfWriteOptions};
-use mupdf::{DocumentWriter, Matrix, Size};
+use mupdf::Size;
 
 use crate::pdf::{Pdf, Rendered};
 use crate::settings::write_atomic;
@@ -53,23 +53,8 @@ pub fn image_targets(stem: &str, pages: &[usize], count: usize, folder: &Path, e
 /// Word (.docx) : MuPDF reconstruit paragraphes et images ; mise en page approximative
 /// pour les documents complexes. Écrit dans un fichier voisin puis renommé (atomique).
 pub fn to_docx(pdf: &Pdf, target: &Path) -> Result<(), String> {
-    let part = target.with_extension("docx.part");
-    let result = (|| {
-        let path = part.to_str().ok_or("chemin illisible")?; // UTF-8 : MuPDF le convertit sous Windows
-        let mut writer = DocumentWriter::new(path, "docx", "").map_err(err)?;
-        for i in 0..pdf.page_count() {
-            let page = pdf.doc().load_page(i as i32).map_err(err)?;
-            let device = writer.begin_page(page.bounds().map_err(err)?).map_err(err)?;
-            page.run(&device, &Matrix::IDENTITY).map_err(err)?;
-            writer.end_page(device).map_err(err)?;
-        }
-        drop(writer); // ferme et écrit le fichier
-        std::fs::rename(&part, target).map_err(err)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&part);
-    }
-    result
+    let data = crate::docx::write(pdf)?;
+    crate::settings::write_atomic(target, &data).map_err(err)
 }
 
 // ----- créer un PDF ------------------------------------------------------------------------

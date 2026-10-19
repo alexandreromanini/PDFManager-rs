@@ -11,6 +11,7 @@ mod capture;
 mod compare;
 mod convert;
 mod dialogs;
+mod docx;
 mod edit;
 mod engine;
 mod fonts;

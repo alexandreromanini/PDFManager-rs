@@ -20,6 +20,7 @@ mod pdf;
 mod print;
 mod security;
 mod settings;
+mod signature;
 mod textedit;
 mod updates;
 

@@ -1,0 +1,19 @@
+[package]
+name = "pdfmanager"
+version = "0.1.0"
+edition = "2024"
+description = "Lecteur et éditeur PDF personnel (réécriture en Rust de PDFManager)"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+mupdf = "0.8"
+rfd = "0.17.2"
+slint = "1.18"
+
+[build-dependencies]
+slint-build = "1.18"
+
+[profile.release]
+strip = true       # symboles de débogage retirés : exe plus léger
+lto = "thin"
+codegen-units = 4

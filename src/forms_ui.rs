@@ -216,11 +216,11 @@ impl App {
     // ----- impression ---------------------------------------------------------------------------
 
     pub(super) fn print(&mut self) {
+        let Some(tab) = self.tab() else { return };
+        let (id, title) = (tab.id, tab.name.clone());
         if !cfg!(windows) {
             return self.error("L'impression n'est disponible que sous Windows.");
         }
-        let Some(tab) = self.tab() else { return };
-        let (id, title) = (tab.id, tab.name.clone());
         self.engine.run(move |docs| {
             let Some(pdf) = docs.get(&id) else { return };
             let allowed = security::allowed(pdf).contains(&"print");

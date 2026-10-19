@@ -762,7 +762,10 @@ impl App {
         tab.hits.extend(rects.into_iter().map(|r| (page, r)));
         if tab.hit_index.is_none() {
             tab.hit_index = Some(0);
-            self.show_hit();
+            // Onglet changé pendant la recherche : le résultat attendra qu'on y revienne.
+            if self.tab().is_some_and(|t| t.id == id) {
+                self.show_hit();
+            }
         } else {
             self.refresh_search_info();
             self.update_view();

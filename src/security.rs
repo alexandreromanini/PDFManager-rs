@@ -57,7 +57,7 @@ pub fn protect(pdf: &mut Pdf, open: &str, owner: &str, allow: &[&str]) -> Result
     opts.set_encryption(Encryption::Aes256).set_user_password(open).set_owner_password(owner).set_permissions(perms);
     let data = pdf.bytes_with(opts)?;
     pdf.swap("Protéger par mot de passe", &data, Some(owner.to_string()))?;
-    pdf.signed = false; // chiffrer réécrit tout le fichier
+    pdf.rewrite_all(); // chiffrer réécrit tout le fichier
     Ok(())
 }
 
@@ -71,7 +71,7 @@ pub fn unprotect(pdf: &mut Pdf) -> Result<(), String> {
     }
     let data = pdf.plain_bytes()?;
     pdf.swap("Retirer la protection", &data, None)?;
-    pdf.signed = false;
+    pdf.rewrite_all();
     Ok(())
 }
 

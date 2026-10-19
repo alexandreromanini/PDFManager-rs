@@ -101,6 +101,13 @@ pub struct Pdf {
     saved_state: Option<u64>,
     /// Fichier signé numériquement : l'enregistrer le réécrit et invalide la signature.
     pub signed: bool,
+    /// Enregistrement « en ajout » (mise à jour incrémentale) : les octets déjà signés ne
+    /// changent pas, les signatures restent valides. Vrai pour un document signé, tant
+    /// qu'aucune opération n'exige de tout réécrire (chiffrement, caviardage…).
+    pub incremental: bool,
+    /// Octets d'où le document a été chargé. Document « en ajout » : chaque modification y
+    /// est aussitôt ajoutée, puis le document rechargé ; ce sont donc ses octets à jour.
+    base: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -135,7 +142,10 @@ impl Pdf {
             next_state: 1,
             saved_state: Some(0),
             signed: data.windows(10).any(|w| w == b"/ByteRange"),
+            incremental: false,
+            base: data.to_vec(),
         };
+        pdf.incremental = pdf.signed;
         pdf.refresh_sizes().map_err(OpenError::Unreadable)?;
         Ok(pdf)
     }
@@ -160,9 +170,30 @@ impl Pdf {
     pub fn bytes(&self) -> Result<Vec<u8>, String> {
         let mut opts = PdfWriteOptions::default();
         opts.set_encryption(Encryption::Keep);
+        if self.incremental {
+            return Ok(self.base.clone()); // déjà à jour (voir commit_incremental)
+        }
         let mut out = vec![];
         self.doc.write_to_with_options(&mut out, opts).map_err(|e| e.to_string())?;
         Ok(out)
+    }
+
+    /// Ajoute les modifications en attente à la suite des octets chargés (par un fichier :
+    /// MuPDF calcule les positions des objets ajoutés depuis la fin du fichier existant),
+    /// puis recharge le document depuis le résultat.
+    fn commit_incremental(&mut self) -> Result<(), String> {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = std::env::temp_dir().join(format!("pdfmanager-ajout-{}-{n}.pdf", std::process::id()));
+        let result = (|| {
+            std::fs::write(&tmp, &self.base).map_err(|e| e.to_string())?;
+            let mut opts = PdfWriteOptions::default();
+            opts.set_encryption(Encryption::Keep).set_incremental(true);
+            self.doc.save_with_options(tmp.to_str().ok_or("chemin illisible")?, opts).map_err(|e| e.to_string())?;
+            std::fs::read(&tmp).map_err(|e| e.to_string())
+        })();
+        let _ = std::fs::remove_file(&tmp);
+        self.reload(&result?)
     }
 
     /// Contenu déchiffré (pour fusionner ou insérer dans un autre document).
@@ -183,6 +214,9 @@ impl Pdf {
 
     /// Version à écrire sur le disque : objets inutiles retirés (pages supprimées…).
     pub fn bytes_for_disk(&self) -> Result<Vec<u8>, String> {
+        if self.incremental {
+            return self.bytes(); // octets signés intacts, modifications ajoutées à la suite
+        }
         let copy = Pdf::open_with_password(&self.bytes()?, self.password.as_deref())
             .map_err(|e| format!("{e:?}"))?;
         let mut opts = PdfWriteOptions::default();
@@ -197,6 +231,7 @@ impl Pdf {
             OpenFailure::Password => "mot de passe refusé".to_string(),
             OpenFailure::Mupdf(e) => e.to_string(),
         })?;
+        self.base = data.to_vec();
         self.refresh_sizes()
     }
 
@@ -205,7 +240,10 @@ impl Pdf {
     pub fn edit(&mut self, label: &str, f: impl FnOnce(&mut PdfDocument) -> Result<(), String>)
                 -> Result<(), String> {
         let before = self.bytes()?;
-        if let Err(e) = f(&mut self.doc).and_then(|_| self.refresh_sizes()) {
+        let incremental = self.incremental;
+        let applied = f(&mut self.doc).and_then(|_| if incremental { self.commit_incremental() } else { Ok(()) })
+            .and_then(|_| self.refresh_sizes());
+        if let Err(e) = applied {
             self.reload(&before)?;
             return Err(e);
         }
@@ -236,6 +274,12 @@ impl Pdf {
         self.state = self.next_state;
         self.next_state += 1;
         Ok(())
+    }
+
+    /// L'opération en cours réécrit tout le fichier : les signatures ne seront plus valides.
+    pub fn rewrite_all(&mut self) {
+        self.signed = false;
+        self.incremental = false;
     }
 
     pub fn password(&self) -> Option<&str> {
@@ -497,5 +541,26 @@ mod tests {
         assert_eq!(Pdf::open_with_password(&data, Some("faux")).err(), Some(OpenError::NeedsPassword));
         assert_eq!(Pdf::open_with_password(&data, Some("s3cret")).unwrap().page_count(), 1);
         assert!(matches!(Pdf::open(b"pas un pdf"), Err(OpenError::Unreadable(_))));
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    use super::*;
+
+    #[test]
+    fn ajout_sans_toucher_aux_octets_existants() {
+        let data = std::fs::read("tests/fixtures/Été déjà vu.pdf").unwrap();
+        let mut pdf = Pdf::open(&data).unwrap();
+        pdf.incremental = true;
+        crate::annot::add_note(&mut pdf, 0, 50.0, 50.0, "après signature", (1.0, 0.0, 0.0), "A").unwrap();
+        let out = pdf.bytes_for_disk().unwrap();
+        assert!(out.len() > data.len() && out.starts_with(&data), "ajout à la suite");
+        // Annuler puis refaire : toujours à la suite des octets d'origine.
+        pdf.undo().unwrap();
+        pdf.redo().unwrap();
+        let again = pdf.bytes_for_disk().unwrap();
+        assert!(again.starts_with(&data));
+        assert_eq!(crate::annot::list(&Pdf::open(&again).unwrap()).len(), 1);
     }
 }

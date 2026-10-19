@@ -1053,7 +1053,9 @@ export component AppWindow inherits Window {
                                                     background: white;
                                                     border-width: 1px;
                                                     border-color: #00000030;
-                                                    Image { source: t.image; width: parent.width; height: parent.height; }
+                                                    // en retrait d'1 px : sans quoi l'image couvre le contour (page
+                                                    // blanche invisible sur le fond clair)
+                                                    Image { source: t.image; x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px; }
                                                 }
                                             }
                                             Text { text: t.index + 1; horizontal-alignment: center; color: Theme.text2; }

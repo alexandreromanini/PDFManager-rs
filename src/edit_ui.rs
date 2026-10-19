@@ -123,6 +123,18 @@ impl App {
         match name {
             "escape" => self.escape(),
             "editor-commit" => self.editor_commit(),
+            "redact-apply" => self.redact_apply(),
+            "redact-text" => {
+                if self.current_tab().is_some() {
+                    self.pending_note = Some(super::annot_ui::NoteTarget::RedactText);
+                    self.show_note("Caviarder toutes les occurrences de ce texte", "");
+                }
+            }
+            "clean" => {
+                if self.current_tab().is_some() {
+                    self.ui().invoke_show_clean();
+                }
+            }
             "print" => self.print(),
             "properties" => self.properties(),
             "unprotect" => self.unprotect(None),
@@ -184,17 +196,27 @@ impl App {
     /// Modification du document courant dans le moteur. `op` renvoie éventuellement les
     /// pages à sélectionner ensuite ; `done` : message affiché en cas de succès.
     pub(super) fn edit(&mut self, done: &str, op: impl FnOnce(&mut Pdf) -> Result<Option<Vec<usize>>, String> + Send + 'static) {
+        let done = done.to_string();
+        self.edit_report(move |pdf| op(pdf).map(|select| (select, done)));
+    }
+
+    /// Comme `edit`, l'opération donnant aussi le message à afficher ensuite (bref : en
+    /// notification ; plusieurs lignes, des avertissements : dans une fenêtre).
+    pub(super) fn edit_report(&mut self, op: impl FnOnce(&mut Pdf) -> Result<(Option<Vec<usize>>, String), String> + Send + 'static) {
         let Some(tab) = self.current_tab() else { return };
         let id = tab.id;
-        let done = done.to_string();
         self.engine.run(move |docs| {
             let Some(pdf) = docs.get_mut(&id) else { return };
-            let result = op(pdf).map(|select| (state_of(pdf), select));
+            let result = op(pdf).map(|(select, message)| (state_of(pdf), select, message));
             from_engine(move |app| match result {
-                Ok((state, select)) => {
+                Ok((state, select, message)) => {
                     app.on_edited(id, state, select);
-                    if !done.is_empty() {
-                        app.toast(&done);
+                    // (Captures d'écran hors écran : pas de fenêtre système, qui bloquerait.)
+                    if message.contains('\n') && std::env::var_os("PDFMANAGER_CAPTURE").is_none() {
+                        rfd::MessageDialog::new().set_title("PDFManager").set_description(&message)
+                            .set_level(rfd::MessageLevel::Info).show();
+                    } else if !message.is_empty() {
+                        app.toast(&message);
                     }
                 }
                 Err(e) => app.error(&e),

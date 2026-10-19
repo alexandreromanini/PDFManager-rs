@@ -245,6 +245,8 @@ export component AppWindow inherits Window {
     public function show-protect() { protect-popup.show(); }
     public function show-owner() { owner-popup.show(); }
     public function show-props() { props-popup.show(); }
+    public function show-clean() { clean-popup.show(); }
+    callback clean-run(bool, bool, bool, bool);
     in property <bool> editor-single;
     in property <[string]> choices;
     in property <string> choice-title;
@@ -568,8 +570,9 @@ export component AppWindow inherits Window {
                         Rectangle {
                             height: 62px;
                             Tile { x: 0px; icon: Icons.pointer; text: "Sélection"; checked: root.tool == ""; clicked => { root.set-tool(""); } }
-                            Tile { x: 62px; icon: Icons.type; text: "Ajouter du texte"; checked: root.tool == "text"; clicked => { root.set-tool("text"); } }
-                            Tile { x: 124px; icon: Icons.image; text: "Image"; checked: root.tool == "image"; clicked => { root.action("add-image"); } }
+                            Tile { x: 62px; icon: Icons.edit; text: "Modifier le texte"; checked: root.tool == "edit-text"; clicked => { root.set-tool("edit-text"); } }
+                            Tile { x: 124px; icon: Icons.type; text: "Ajouter du texte"; checked: root.tool == "text"; clicked => { root.set-tool("text"); } }
+                            Tile { x: 186px; icon: Icons.image; text: "Image"; checked: root.tool == "image"; clicked => { root.action("add-image"); } }
                         }
                         Section { text: "Texte ajouté"; height: 28px; vertical-alignment: center; }
                         HorizontalLayout {
@@ -585,6 +588,20 @@ export component AppWindow inherits Window {
                         Section { text: "Pages"; height: 28px; vertical-alignment: center; }
                         ToolRow { icon: Icons.panel; text: "En-tête, pied de page et numérotation…"; clicked => { root.action("header"); } }
                         ToolRow { icon: Icons.droplets; text: "Filigrane…"; clicked => { root.action("watermark"); } }
+                        Section { text: "Caviardage"; height: 28px; vertical-alignment: center; }
+                        Rectangle {
+                            height: 62px;
+                            Tile { x: 0px; icon: Icons.redact; text: "Caviarder une zone"; checked: root.tool == "redact"; clicked => { root.set-tool("redact"); } }
+                        }
+                        ToolRow { icon: Icons.search; text: "Caviarder un texte (partout)…"; clicked => { root.action("redact-text"); } }
+                        ToolRow { icon: Icons.redact; text: "Appliquer les caviardages…"; clicked => { root.action("redact-apply"); } }
+                        ToolRow { icon: Icons.eraser; text: "Nettoyer le document…"; clicked => { root.action("clean"); } }
+                        Text {
+                            text: "Modifier le texte : cliquez un paragraphe et corrigez-le sur la page, puis cliquez à côté (Échap pour annuler). Seules les lignes changées sont réécrites, dans la police d'origine ou la même police installée sur l'ordinateur ; sinon une police proche, et vous êtes prévenu.";
+                            color: Theme.text2;
+                            wrap: word-wrap;
+                            font-size: 12px;
+                        }
                         Text {
                             text: "Ajouter du texte : cliquez ou tracez une bulle et écrivez dedans ; cliquez à côté pour valider (Échap pour annuler). Ensuite, glissez-la pour la déplacer et double-cliquez pour la modifier. Taille et couleur s'appliquent au texte sélectionné et aux suivants.";
                             color: Theme.text2;
@@ -592,8 +609,8 @@ export component AppWindow inherits Window {
                             font-size: 12px;
                         }
                         Text {
-                            text: "Modifier le texte d'origine du document arrive en phase 5.";
-                            color: Theme.text3;
+                            text: "Caviardage : les zones marquées restent réversibles ; « Appliquer » supprime vraiment ce qu'elles couvrent.";
+                            color: Theme.text2;
                             wrap: word-wrap;
                             font-size: 12px;
                         }
@@ -1492,6 +1509,41 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { props-popup.close(); } }
                     Button { text: "Enregistrer"; primary: true; clicked => { props-popup.close(); root.props-save(); } }
+                }
+            }
+        }
+    }
+
+    clean-popup := PopupWindow {
+        x: (root.width - 440px) / 2;
+        y: (root.height - 320px) / 2;
+        width: 440px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 8px;
+                Text { text: "Nettoyer le document"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Retire les informations cachées avant de diffuser le document."; color: Theme.text2; wrap: word-wrap; }
+                c-meta := CheckBox { text: "Métadonnées (auteur, titre, logiciel…)"; checked: true; }
+                c-js := CheckBox { text: "JavaScript et actions automatiques"; checked: true; }
+                c-files := CheckBox { text: "Pièces jointes"; checked: true; }
+                c-thumbs := CheckBox { text: "Vignettes intégrées"; checked: true; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { clean-popup.close(); } }
+                    Button {
+                        text: "Nettoyer";
+                        primary: true;
+                        clicked => { clean-popup.close(); root.clean-run(c-meta.checked, c-js.checked, c-files.checked, c-thumbs.checked); }
+                    }
                 }
             }
         }

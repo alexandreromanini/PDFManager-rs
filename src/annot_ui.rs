@@ -36,6 +36,8 @@ pub(super) struct Editor {
     pub(super) color: Color,
     /// Champ de formulaire en cours de remplissage.
     pub(super) field: Option<crate::forms::FieldInfo>,
+    /// Texte d'origine du document en cours de modification.
+    pub(super) block: Option<crate::textedit::TextBlock>,
 }
 
 /// Ce que valide la fenêtre « Note ».
@@ -44,6 +46,7 @@ pub(super) enum NoteTarget {
     FreeText(usize, Rect),
     Edit(usize, i32),
     Combo(usize, Rect),
+    RedactText,
 }
 
 impl App {
@@ -81,6 +84,8 @@ impl App {
             "stamp" => "Cliquez ou tracez l'emplacement du tampon.",
             "text" => "Cliquez ou tracez une bulle, puis écrivez (cliquez à côté pour valider, Échap pour annuler).",
             "image" => "Tracez le cadre de l'image (ou cliquez).",
+            "edit-text" => "Cliquez un paragraphe pour le corriger sur place ; cliquez à côté pour valider (Échap pour annuler).",
+            "redact" => "Tracez les zones à caviarder ; rien n'est retiré avant « Appliquer les caviardages ».",
             t if t.starts_with("field-") => "Tracez le cadre du champ (ou cliquez). Cliquer un champ existant propose de le supprimer.",
             _ => "",
         };
@@ -179,6 +184,10 @@ impl App {
                 tab.gesture = Some(Gesture::Ink { page, points: vec![pt] });
                 true
             }
+            "edit-text" => {
+                self.edit_text_at(page, pt);
+                return true;
+            }
             "text" if Self::hit(tab, page, pt).is_some_and(|a| a.kind == "Typewriter") => {
                 let a = Self::hit(tab, page, pt).unwrap();
                 self.edit_text(a);
@@ -251,6 +260,11 @@ impl App {
                     t if t.starts_with("field-") => {
                         self.field_release(page, a, b);
                     }
+                    "redact" => {
+                        if !small(a, b) {
+                            self.redact_zone(page, r);
+                        }
+                    }
                     "rect" | "ellipse" | "line" | "arrow" => {
                         if !small(a, b) {
                             self.annot_edit(move |pdf| annot::add_shape(pdf, page, &tool, a, b, color, stroke, &author));
@@ -275,7 +289,7 @@ impl App {
                     "text" => {
                         let r = if small(a, b) { Rect::new(a.0, a.1 - size * 0.6, a.0 + 150.0, a.1 + size * 0.8) } else { r };
                         if let Some(tab) = self.tab() {
-                            tab.editor = Some(Editor { page, rect: r, xref: None, size, color: text_color, field: None });
+                            tab.editor = Some(Editor { page, rect: r, xref: None, size, color: text_color, field: None, block: None });
                         }
                         self.ui().set_editor_text("".into());
                     }
@@ -308,7 +322,7 @@ impl App {
             from_engine(move |app| {
                 let Some((text, size, color)) = style else { return };
                 let Some(tab) = app.tabs.iter_mut().find(|t| t.id == id) else { return };
-                tab.editor = Some(Editor { page: a.page, rect: a.rect, xref: Some(a.xref), size, color, field: None });
+                tab.editor = Some(Editor { page: a.page, rect: a.rect, xref: Some(a.xref), size, color, field: None, block: None });
                 tab.picked = None;
                 let ui = app.ui();
                 ui.set_editor_text(text.into());
@@ -326,6 +340,9 @@ impl App {
         self.ui().set_editor_single(false);
         if let Some(f) = e.field {
             return self.field_commit(f, text.trim_end_matches(['\n', '\r']).to_string());
+        }
+        if let Some(block) = e.block {
+            return self.text_commit(block, text);
         }
         let text = text.trim_end().to_string();
         if text.trim().is_empty() {
@@ -393,6 +410,7 @@ impl App {
                 self.annot_edit(move |pdf| annot::add_freetext(pdf, page, r, &text, (0.0, 0.0, 0.0), size, &author));
             }
             NoteTarget::Combo(page, r) => self.add_combo(page, r, &text),
+            NoteTarget::RedactText => self.redact_text(text.trim().to_string()),
             NoteTarget::Edit(page, xref) => {
                 self.annot_edit(move |pdf| annot::set_content(pdf, page, xref, &text, &author).map(|_| 0));
             }

@@ -6,6 +6,7 @@ use super::annot_ui::{Editor, NoteTarget};
 use super::{from_engine, App, Tab};
 use crate::forms::{self, FieldInfo};
 use crate::pdf::Rect;
+use crate::textedit::{self, TextBlock};
 use crate::{print, security, updates, PropRow};
 
 /// Outils de création de champs : nom de l'outil, type de champ, taille par défaut.
@@ -60,7 +61,7 @@ impl App {
                 let Some(tab) = self.tab() else { return };
                 let size = if f.multiline { 12.0 } else { (f.rect.height() * 0.65).clamp(6.0, 14.0) };
                 tab.editor = Some(Editor { page: f.page, rect: f.rect, xref: None, size, color: (0.0, 0.0, 0.0),
-                                           field: Some(f.clone()) });
+                                           field: Some(f.clone()), block: None });
                 tab.picked = None;
                 let ui = self.ui();
                 ui.set_editor_text(f.value.clone().into());
@@ -307,5 +308,100 @@ fn size_text(n: u64) -> String {
         format!("{} Ko", n.div_ceil(1024))
     } else {
         format!("{:.1} Mo", n as f64 / 1_048_576.0).replace('.', ",")
+    }
+}
+
+// ----- modifier le texte, caviardage, nettoyage ----------------------------------------------
+
+impl App {
+    /// Outil « Modifier le texte » : le paragraphe cliqué s'ouvre en saisie sur place.
+    pub(super) fn edit_text_at(&mut self, page: usize, pt: (f32, f32)) {
+        let Some(id) = self.tab().map(|t| t.id) else { return };
+        self.engine.run(move |docs| {
+            let Some(pdf) = docs.get(&id) else { return };
+            let found = textedit::text_block_at(pdf, page, pt.0, pt.1);
+            from_engine(move |app| match found {
+                Ok(Some(block)) => {
+                    let Some(tab) = app.tabs.iter_mut().find(|t| t.id == id) else { return };
+                    let first = &block.lines[0];
+                    tab.editor = Some(Editor { page, rect: block.rect, xref: None, size: first.size, color: first.color,
+                                               field: None, block: Some(block.clone()) });
+                    tab.picked = None;
+                    let ui = app.ui();
+                    ui.set_editor_text(block.text().into());
+                    ui.set_editor_single(false);
+                    app.update_view();
+                }
+                Ok(None) => app.toast("Pas de texte ici : cliquez sur un paragraphe (pour écrire ailleurs, utilisez « Ajouter du texte »)."),
+                Err(e) => app.error(&e),
+            });
+        });
+    }
+
+    pub(super) fn text_commit(&mut self, block: TextBlock, text: String) {
+        let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
+        self.edit_report(move |pdf| {
+            let warnings = textedit::edit_block(pdf, &block, &text)?;
+            let message = if warnings.is_empty() { String::new() } else { format!("Texte modifié.\n\n{}", warnings.join("\n\n")) };
+            Ok((Some(keep), message))
+        });
+    }
+
+    pub(super) fn redact_zone(&mut self, page: usize, rect: Rect) {
+        let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
+        self.edit_report(move |pdf| {
+            textedit::mark_redaction(pdf, page, rect)?;
+            Ok((Some(keep), "Zone marquée. Rien n'est retiré avant « Appliquer les caviardages ».".into()))
+        });
+    }
+
+    pub(super) fn redact_text(&mut self, query: String) {
+        let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
+        self.edit_report(move |pdf| {
+            let n = textedit::mark_text(pdf, &query)?;
+            let message = match n {
+                0 => format!("« {query} » n'apparaît pas dans le document."),
+                n => format!("{n} occurrence{} de « {query} » marquée{}. Vérifiez, puis « Appliquer les caviardages ».",
+                             if n > 1 { "s" } else { "" }, if n > 1 { "s" } else { "" }),
+            };
+            Ok((Some(keep), message))
+        });
+    }
+
+    pub(super) fn redact_apply(&mut self) {
+        let Some(id) = self.tab().map(|t| t.id) else { return };
+        self.engine.run(move |docs| {
+            let n = docs.get(&id).map_or(0, textedit::pending_redactions);
+            from_engine(move |app| {
+                if n == 0 {
+                    return app.toast("Aucune zone marquée : tracez-en avec l'outil « Caviarder » ou « Caviarder un texte… ».");
+                }
+                let text = format!("Supprimer définitivement le contenu de {n} zone{} marquée{} (texte, images, tracés, \
+                                    commentaires et champs qui les touchent) ?\n\nCtrl+Z reste possible tant que le document \
+                                    n'est pas enregistré.", if n > 1 { "s" } else { "" }, if n > 1 { "s" } else { "" });
+                if !super::edit_ui::ask("Appliquer les caviardages", &text) {
+                    return;
+                }
+                let keep = app.tab().map(|t| t.selected.clone()).unwrap_or_default();
+                app.edit_report(move |pdf| {
+                    let (zones, removed) = textedit::apply_redactions(pdf)?;
+                    Ok((Some(keep), format!("{zones} zone{} caviardée{}{}.\nEnregistrez (Ctrl+S) : le fichier enregistré n'en \
+                                             contiendra plus aucune trace.", if zones > 1 { "s" } else { "" },
+                                            if zones > 1 { "s" } else { "" },
+                                            if removed > 0 { format!(", {removed} commentaire(s) ou champ(s) retiré(s)") } else { String::new() })))
+                });
+            });
+        });
+    }
+
+    pub fn clean_run(&mut self, metadata: bool, javascript: bool, attachments: bool, thumbnails: bool) {
+        if !(metadata || javascript || attachments || thumbnails) {
+            return;
+        }
+        let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
+        self.edit_report(move |pdf| {
+            let done = textedit::clean(pdf, metadata, javascript, attachments, thumbnails)?;
+            Ok((Some(keep), format!("Nettoyé : {} (effectif à l'enregistrement).", done.join(", "))))
+        });
     }
 }

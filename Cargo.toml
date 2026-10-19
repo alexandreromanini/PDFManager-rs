@@ -29,3 +29,7 @@ winresource = "0.1.34"
 strip = true       # symboles de débogage retirés : exe plus léger
 # Pas de LTO : la CI lie l'exécutable deux fois (tests, puis exe), ~2 min gagnées pour
 # quelques Mo de plus.
+
+# MuPDF (bibliothèque Rust) avec un correctif : voir vendor/mupdf/CORRECTIF.md.
+[patch.crates-io]
+mupdf = { path = "vendor/mupdf" }

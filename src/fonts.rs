@@ -86,7 +86,9 @@ pub fn generic(family: &str, bold: bool, italic: bool) -> Option<(PathBuf, Strin
 /// La police réduite aux caractères de `text` (quelques Ko au lieu de quelques Mo).
 pub fn subset(path: &std::path::Path, text: &str) -> Result<Vec<u8>, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    let chars: BTreeSet<char> = text.chars().chain([' ', '\u{a0}']).collect();
+    // Pas d'espace insécable d'office : même glyphe que l'espace, elle la remplacerait
+    // dans le texte extrait (copier, rechercher).
+    let chars: BTreeSet<char> = text.chars().chain([' ']).collect();
     oxifont_subset::subset_font(&data, &chars).map_err(|e| e.to_string())
 }
 

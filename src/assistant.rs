@@ -175,14 +175,16 @@ pub fn document_text(chunks: &[Passage]) -> String {
     chunks.iter().map(|c| format!("[p. {}] {}", c.page, c.text)).collect::<Vec<_>>().join("\n\n")
 }
 
-/// Pages citées dans une réponse : « [p. 3] » → 3.
+/// Pages citées dans une réponse : « [p. 3] », « [p. 1, p. 2] », « [p.12] » → 3, 1, 2, 12.
 pub fn cited_pages(text: &str) -> Vec<usize> {
     let mut out = vec![];
-    for part in text.split("[p.").skip(1) {
-        let digits: String = part.trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(n) = digits.parse::<usize>() {
-            if !out.contains(&n) {
-                out.push(n);
+    for group in text.split('[').skip(1).filter_map(|g| g.split(']').next()) {
+        for part in group.split("p.").skip(1) {
+            let digits: String = part.trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = digits.parse::<usize>() {
+                if !out.contains(&n) {
+                    out.push(n);
+                }
             }
         }
     }
@@ -381,7 +383,7 @@ mod tests {
         let r = relevant(&many, "Quel est le montant du loyer ?", 2000);
         assert_eq!(r.first().map(|c| c.page), Some(41));
         assert!(total(&overview(&many, 3000)) <= 3000);
-        assert_eq!(cited_pages("voir [p. 3] et [p.12], [p. 3]"), [3, 12]);
+        assert_eq!(cited_pages("voir [p. 3] et [p.12], [p. 3] ; [p. 1, p. 2, p. 3]"), [3, 12, 1, 2]);
         let conv = Conversation { chunks, history: vec![] };
         let (messages, shown) = conv.request(None);
         assert_eq!(shown, "Résume ce document.");

@@ -19,7 +19,7 @@ usages.
 | 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | ✅ 0.3.0 |
 | 4 | Formulaires, protection, impression, mises à jour | ✅ 0.4.0 |
 | 5 | Modifier le texte existant, caviardage | ✅ 0.5.0 |
-| 6 | OCR, assistant IA, conversions | à venir |
+| 6 | OCR, assistant IA, conversions | ✅ 0.6.0 |
 | 7 | Signatures, comparaison | à venir |
 
 ## Fonctions (phase 1)
@@ -95,6 +95,20 @@ usages.
   qui supprime vraiment texte, images, tracés, commentaires et champs couverts.
 - Nettoyer le document : métadonnées, JavaScript et actions automatiques, pièces jointes,
   vignettes intégrées.
+
+## Fonctions (phase 6)
+
+- Reconnaître le texte (OCR) : Tesseract intégré à MuPDF, modèles français et anglais
+  livrés (`resources/tessdata`, licence Apache 2.0) ; le texte reconnu est posé, invisible,
+  sur les pages scannées (recherche, sélection, copie) ; Échap arrête.
+- Réduire la taille (copie) : sans perte, ou photos JPEG ramenées à 150 / 96 dpi.
+- Convertir : PDF vers Word (.docx, par MuPDF), images (PNG, JPEG), texte ; images et
+  documents Office (LibreOffice, s'il est installé) vers PDF.
+- Archiver en PDF/A-2b avec Ghostscript, s'il est installé.
+- Assistant IA hors ligne (rail de droite) : résumé et questions sur le document, pages
+  citées cliquables. Qwen3 4B Instruct par llama.cpp, sur le processeur ; le modèle (2,5 Go)
+  est partagé avec la version Python, téléchargé par l'installeur (case à cocher) ou depuis
+  l'application, taille et empreinte vérifiées.
 
 ## Installation
 

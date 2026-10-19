@@ -28,6 +28,8 @@ mod edit_ui;
 mod annot_ui;
 #[path = "forms_ui.rs"]
 mod forms_ui;
+#[path = "convert_ui.rs"]
+mod convert_ui;
 
 const THUMB_WIDTH: f32 = 110.0;
 const RAIL_WIDTH: f32 = 260.0 + 1.0 + 48.0 + 1.0;
@@ -234,6 +236,10 @@ pub struct App {
     pending_choice: Option<crate::forms::FieldInfo>,
     props: Vec<String>,
     pending_installer: Option<PathBuf>,
+    ocr_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    chats: HashMap<DocId, convert_ui::Chat>,
+    ai: Option<crate::assistant::Engine>,
+    ai_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl App {
@@ -440,6 +446,7 @@ impl App {
         ui.set_doc_title(title.into());
         self.sync_state();
         self.sync_comments();
+        self.sync_assistant();
         ui.set_recent(ModelRc::new(VecModel::from(self.recent_rows())));
     }
 
@@ -1078,6 +1085,10 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         pending_choice: None,
         props: vec![],
         pending_installer: None,
+        ocr_cancel: None,
+        chats: HashMap::new(),
+        ai: None,
+        ai_cancel: None,
     };
     app.apply_theme();
     APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -1132,6 +1143,11 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_prop_edited(|i, t| with_app(move |app| app.prop_edited(i.max(0) as usize, t.to_string())));
     ui.on_props_save(|| with_app(App::props_save));
     ui.on_clean_run(|m, j, a, t| with_app(move |app| app.clean_run(m, j, a, t)));
+    ui.on_export_images_run(|jpg, dpi, pages| with_app(move |app| app.export_images_run(jpg, dpi, pages.to_string())));
+    ui.on_compress_run(|level| with_app(move |app| app.compress_run(level.max(0) as usize)));
+    ui.on_ocr_run(|lang, pages, all| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all)));
+    ui.on_ai_ask(|q| with_app(move |app| app.ai_ask(q.to_string())));
+    ui.on_chat_page(|p| with_app(move |app| app.go_to((p.max(1) - 1) as usize)));
     // Index des polices installées (« Modifier le texte ») préparé à l'avance.
     std::thread::spawn(|| {
         crate::fonts::index();

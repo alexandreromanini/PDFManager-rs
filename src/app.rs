@@ -359,6 +359,13 @@ impl App {
 
     fn on_opened(&mut self, id: DocId, path: PathBuf, sizes: Vec<(f32, f32)>, bookmarks: Vec<Bookmark>,
                  signed: bool, comments: Vec<AnnotInfo>, fields: Vec<crate::forms::FieldInfo>) {
+        // Ouvert deux fois coup sur coup (double-clic, glisser-déposer) : un seul onglet.
+        if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
+            self.engine.run(move |docs| {
+                docs.remove(&id);
+            });
+            return self.select_tab(i);
+        }
         let thumbs = self.thumb_model(id, &sizes, 0);
         self.tabs.push(Tab {
             id,

@@ -8,6 +8,7 @@ mod app;
 mod assistant;
 #[cfg(feature = "capture")]
 mod capture;
+mod compare;
 mod convert;
 mod edit;
 mod engine;

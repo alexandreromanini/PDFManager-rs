@@ -768,6 +768,139 @@ fn timestamp_time(token: &Any, signature: &[u8]) -> Option<String> {
     Some(local(tst.gen_time.to_system_time()))
 }
 
+// ----- image de signature (manuscrite) ---------------------------------------------------------
+
+/// PNG RVBA (`width` × `height`, lignes contiguës).
+fn png_rgba(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    let mut out = vec![];
+    let mut enc = png::Encoder::new(&mut out, width, height);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().and_then(|mut w| w.write_image_data(rgba)).map_err(err)?;
+    Ok(out)
+}
+
+/// Recadre sur l'encre (pixels non transparents), avec une petite marge.
+fn crop_ink(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>, String> {
+    let (w, h) = (w as usize, h as usize);
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for y in 0..h {
+        for x in 0..w {
+            if rgba[(y * w + x) * 4 + 3] > 0 {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            }
+        }
+    }
+    if x0 > x1 {
+        return Err("La signature est vide.".into());
+    }
+    let m = 4;
+    let (x0, y0, x1, y1) = (x0.saturating_sub(m), y0.saturating_sub(m), (x1 + m).min(w - 1), (y1 + m).min(h - 1));
+    let (cw, ch) = (x1 - x0 + 1, y1 - y0 + 1);
+    let mut out = Vec::with_capacity(cw * ch * 4);
+    for y in y0..=y1 {
+        out.extend_from_slice(&rgba[(y * w + x0) * 4..(y * w + x1 + 1) * 4]);
+    }
+    png_rgba(&out, cw as u32, ch as u32)
+}
+
+/// Rendu RVBA (fond transparent) d'une page dessinée par `draw`, recadré sur l'encre.
+fn render_ink(w: f32, h: f32, draw: impl FnOnce(&mut mupdf::pdf::PdfDocument, &mut mupdf::pdf::PdfPage) -> Result<(), String>)
+              -> Result<Vec<u8>, String> {
+    let mut doc = mupdf::pdf::PdfDocument::new();
+    let mut page = doc.new_page(mupdf::Size::new(w, h)).map_err(err)?;
+    draw(&mut doc, &mut page)?;
+    drop(page);
+    let page = doc.load_page(0).map_err(err)?;
+    let pix = page.to_pixmap(&mupdf::Matrix::new_scale(2.0, 2.0), &mupdf::Colorspace::device_rgb(), true, false).map_err(err)?;
+    let (pw, ph, stride) = (pix.width(), pix.height(), pix.stride() as usize);
+    let mut rgba = Vec::with_capacity((pw * ph * 4) as usize);
+    for row in pix.samples().chunks(stride).take(ph as usize) {
+        // Couleurs prémultipliées par l'opacité : on les rétablit.
+        for px in row[..pw as usize * 4].chunks(4) {
+            let a = px[3] as u32;
+            let un = |c: u8| if a == 0 { 0 } else { ((c as u32 * 255 + a / 2) / a).min(255) as u8 };
+            rgba.extend_from_slice(&[un(px[0]), un(px[1]), un(px[2]), px[3]]);
+        }
+    }
+    crop_ink(&rgba, pw, ph)
+}
+
+/// Signature dessinée : traits (points en pixels d'un cadre `w` × `h`) → PNG transparent.
+pub fn strokes_png(strokes: &[Vec<(f32, f32)>], w: f32, h: f32) -> Result<Vec<u8>, String> {
+    use mupdf::shape::{FinishOptions, PdfColor, Shape};
+    if strokes.iter().all(|s| s.len() < 2) {
+        return Err("La signature est vide.".into());
+    }
+    render_ink(w, h, |doc, page| {
+        let mut shape = Shape::new(page).map_err(err)?;
+        for stroke in strokes.iter().filter(|s| s.len() >= 2) {
+            let pts: Vec<mupdf::Point> = stroke.iter().map(|&(x, y)| mupdf::Point::new(x, y)).collect();
+            shape.draw_polyline(&pts).map_err(err)?;
+        }
+        shape.finish(&FinishOptions { color: Some(PdfColor::rgb(0.05, 0.1, 0.35)), width: 2.2, line_cap: Some(1), line_join: Some(1),
+                                      ..Default::default() }).map_err(err)?;
+        shape.commit(doc, true).map_err(err)
+    })
+}
+
+/// Police d'écriture manuscrite installée (Windows), sinon Times italique.
+fn script_font() -> Option<Vec<u8>> {
+    ["SegoeScript", "Segoe Script", "LucidaHandwriting-Italic", "BrushScriptMT", "Inkfree"].iter()
+        .find_map(|n| crate::fonts::find(n)).and_then(|p| std::fs::read(p).ok())
+}
+
+/// Signature tapée : le nom écrit dans une police manuscrite → PNG transparent.
+pub fn text_png(text: &str) -> Result<Vec<u8>, String> {
+    use mupdf::shape::{PdfColor, Shape, TextOptions};
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Tapez votre nom.".into());
+    }
+    let font = script_font();
+    let size = 48.0;
+    let w = crate::annot::text_width(text, size) * 1.6 + 40.0;
+    render_ink(w, size * 2.0, |doc, page| {
+        let mut shape = Shape::new(page).map_err(err)?;
+        let opts = TextOptions {
+            fontsize: size,
+            fontname: if font.is_some() { "Script".into() } else { "Times-Italic".into() },
+            fontfile: font.as_deref(),
+            simple: font.is_none(),
+            fill: Some(PdfColor::rgb(0.05, 0.1, 0.35)),
+            ..Default::default()
+        };
+        shape.insert_text(mupdf::Point::new(20.0, size * 1.35), text, &opts).map_err(err)?;
+        shape.commit(doc, true).map_err(err)
+    })
+}
+
+/// Image (scan, photo) → PNG dont le fond clair devient transparent ; l'encre garde sa
+/// couleur, avec des bords adoucis. Réduite à 1000 px de large au plus.
+pub fn transparent_white(data: &[u8], threshold: u8) -> Result<Vec<u8>, String> {
+    let img = mupdf::Image::from_bytes(data).map_err(|e| format!("Image illisible : {e}"))?;
+    let mut pix = img.to_pixmap().map_err(err)?;
+    while pix.width() > 1000 {
+        pix.shrink(1).map_err(err)?; // divise par 2
+    }
+    let (w, h, n, stride) = (pix.width() as usize, pix.height() as usize, pix.n() as usize, pix.stride() as usize);
+    let color = n - pix.alpha() as usize;
+    if color != 1 && color != 3 {
+        return Err("Image en couleurs CMJN : enregistrez-la en RVB (PNG ou JPEG).".into());
+    }
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for row in pix.samples().chunks(stride).take(h) {
+        for px in row[..w * n].chunks(n) {
+            let (r, g, b) = if color == 1 { (px[0], px[0], px[0]) } else { (px[0], px[1], px[2]) };
+            let gray = (r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000;
+            // Plus clair que le seuil : transparent ; en dessous, opacité croissante.
+            let a = if gray > threshold as u32 { 0 } else { ((threshold as u32 - gray) * 255 / 100).min(255) };
+            rgba.extend_from_slice(&[r, g, b, a as u8]);
+        }
+    }
+    crop_ink(&rgba, w as u32, h as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -844,5 +977,25 @@ mod tests {
             assert!(st.iter().all(|s| s.intact), "{st:?}");
             std::fs::write(format!("/tmp/claude-1000/signe-{f}.pdf"), &again).ok();
         }
+    }
+
+    #[test]
+    fn images_de_signature() {
+        let is_transparent_png = |png: &[u8]| {
+            let img = mupdf::Image::from_bytes(png).unwrap();
+            assert!(img.width() > 10 && img.height() > 5);
+            png.starts_with(b"\x89PNG")
+        };
+        let drawn = strokes_png(&[vec![(10.0, 50.0), (60.0, 10.0), (110.0, 60.0)], vec![(20.0, 70.0), (120.0, 70.0)]], 200.0, 100.0).unwrap();
+        assert!(is_transparent_png(&drawn));
+        assert!(strokes_png(&[], 200.0, 100.0).is_err());
+        assert!(is_transparent_png(&text_png("Alex Testeur").unwrap()));
+        // Image à fond blanc (rendu d'une page) : le fond devient transparent.
+        let page = Pdf::open(&fixture()).unwrap().render(0, 1.0, 0).unwrap();
+        let png = crate::convert::encode(&page, false).unwrap();
+        let clear = transparent_white(&png, 200).unwrap();
+        assert!(is_transparent_png(&clear));
+        let small = mupdf::Image::from_bytes(&clear).unwrap();
+        assert!(small.width() < page.width, "recadré sur l'encre");
     }
 }

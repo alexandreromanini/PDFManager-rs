@@ -242,14 +242,15 @@ pub fn add_field(pdf: &mut Pdf, page: usize, rect: Rect, kind: &str, field_name:
         }
         let f = doc.add_object(&f).map_err(err)?;
         xref = f.as_indirect().map_err(err)?;
-        match page_obj.get_dict("Annots").map_err(err)? {
-            Some(mut annots) => annots.array_push(f.clone()).map_err(err)?,
-            None => {
-                let mut annots = doc.new_array().map_err(err)?;
-                annots.array_push(f.clone()).map_err(err)?;
-                page_obj.dict_put("Annots", annots).map_err(err)?;
-            }
-        }
+        // Liste des annotations rangée dans un objet à part : les ajouts suivants (après une
+        // signature) ne modifieront qu'elle, pas la page (exigé par les vérificateurs stricts).
+        let mut annots = match page_obj.get_dict("Annots").map_err(err)? {
+            Some(a) if a.is_indirect().map_err(err)? => a,
+            Some(a) => doc.add_object(&a).map_err(err)?,
+            None => doc.add_object(&doc.new_array().map_err(err)?).map_err(err)?,
+        };
+        annots.array_push(f.clone()).map_err(err)?;
+        page_obj.dict_put("Annots", annots).map_err(err)?;
         let mut list = form.get_dict("Fields").map_err(err)?.ok_or("formulaire sans /Fields")?;
         list.array_push(f).map_err(err)?;
 

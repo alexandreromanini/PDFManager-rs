@@ -71,7 +71,7 @@ pub fn recognize(gray: &[u8], w: u32, h: u32, dpi: f32, language: &str) -> Resul
 }
 
 /// Littéral PDF en WinAnsi (hors latin : « ? »).
-fn literal(word: &str) -> Vec<u8> {
+pub fn literal(word: &str) -> Vec<u8> {
     const EXTRA: [(char, u8); 27] = [
         ('€', 0x80), ('‚', 0x82), ('ƒ', 0x83), ('„', 0x84), ('…', 0x85), ('†', 0x86), ('‡', 0x87), ('ˆ', 0x88),
         ('‰', 0x89), ('Š', 0x8A), ('‹', 0x8B), ('Œ', 0x8C), ('Ž', 0x8E), ('‘', 0x91), ('’', 0x92), ('“', 0x93),

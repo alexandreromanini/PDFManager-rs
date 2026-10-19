@@ -7,12 +7,14 @@ mod annot;
 mod app;
 #[cfg(feature = "capture")]
 mod capture;
+mod convert;
 mod edit;
 mod engine;
 mod fonts;
 mod forms;
 mod instance;
 mod layout;
+mod ocr;
 mod pdf;
 mod print;
 mod security;

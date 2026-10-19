@@ -82,9 +82,11 @@ pub struct Rendered {
 /// zooms extrêmes plutôt que de saturer la mémoire), comme dans la version Python.
 const MAX_RENDER_PIXELS: f32 = 40_000_000.0;
 
-/// Nombre d'étapes d'annulation gardées (chacune est une copie du document en mémoire).
-/// ponytail : plafond fixe ; à rendre proportionnel à la taille du fichier si besoin.
+/// Nombre d'étapes d'annulation gardées (chacune est une copie du document en mémoire)…
 pub const MAX_UNDO: usize = 30;
+/// … dans la limite de ce total : 30 étapes jusqu'à 20 Mo, 6 pour un fichier de 100 Mo
+/// (sans plafond, 30 modifications d'un scan de 100 Mo occupaient 4 Go).
+const MAX_UNDO_BYTES: usize = 600 << 20;
 
 /// Un état du document : libellé de l'opération, contenu, identifiant de l'état, mot de
 /// passe (la protection fait partie de l'historique).
@@ -247,10 +249,7 @@ impl Pdf {
             self.reload(&before)?;
             return Err(e);
         }
-        self.undo.push((label.to_string(), before, self.state, self.password.clone()));
-        if self.undo.len() > MAX_UNDO {
-            self.undo.remove(0);
-        }
+        self.push_undo((label.to_string(), before, self.state, self.password.clone()));
         self.redo.clear();
         self.state = self.next_state;
         self.next_state += 1;
@@ -266,10 +265,7 @@ impl Pdf {
             self.reload(&before)?;
             return Err(e);
         }
-        self.undo.push((label.to_string(), before, self.state, old));
-        if self.undo.len() > MAX_UNDO {
-            self.undo.remove(0);
-        }
+        self.push_undo((label.to_string(), before, self.state, old));
         self.redo.clear();
         self.state = self.next_state;
         self.next_state += 1;
@@ -331,6 +327,13 @@ impl Pdf {
         self.reload(&data)?;
         self.state = state;
         Ok(())
+    }
+
+    /// Ajoute une étape ; les plus anciennes sont oubliées au-delà des plafonds (la
+    /// dernière est toujours gardée).
+    fn push_undo(&mut self, snapshot: Snapshot) {
+        self.undo.push(snapshot);
+        trim_history(&mut self.undo, MAX_UNDO, MAX_UNDO_BYTES);
     }
 
     pub fn modified(&self) -> bool {
@@ -483,12 +486,33 @@ pub fn words_to_text(words: &[Word]) -> String {
     out
 }
 
+fn trim_history(undo: &mut Vec<Snapshot>, max: usize, max_bytes: usize) {
+    let mut total: usize = undo.iter().map(|s| s.1.len()).sum();
+    while undo.len() > 1 && (undo.len() > max || total > max_bytes) {
+        total -= undo.remove(0).1.len();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn fixture() -> Vec<u8> {
         std::fs::read("tests/fixtures/Été déjà vu.pdf").expect("PDF de test")
+    }
+
+    #[test]
+    fn historique_borne() {
+        let step = |n: usize| (String::new(), vec![0u8; n], 0, None);
+        let mut h: Vec<Snapshot> = (0..5).map(|_| step(10)).collect();
+        trim_history(&mut h, 3, 1000);
+        assert_eq!(h.len(), 3); // nombre d'étapes
+        h.push(step(25));
+        trim_history(&mut h, 30, 40);
+        assert_eq!(h.iter().map(|s| s.1.len()).collect::<Vec<_>>(), [10, 25]); // taille totale
+        let mut h = vec![step(500)];
+        trim_history(&mut h, 30, 40);
+        assert_eq!(h.len(), 1); // la dernière étape reste, même trop grosse
     }
 
     #[test]

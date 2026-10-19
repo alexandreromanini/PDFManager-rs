@@ -18,7 +18,7 @@ usages.
 | 2 | Enregistrer, annuler/rétablir, organiser les pages | ✅ 0.2.0 |
 | 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | ✅ 0.3.0 |
 | 4 | Formulaires, protection, impression, mises à jour | ✅ 0.4.0 |
-| 5 | Modifier le texte existant, caviardage | à venir |
+| 5 | Modifier le texte existant, caviardage | ✅ 0.5.0 |
 | 6 | OCR, assistant IA, conversions | à venir |
 | 7 | Signatures, comparaison | à venir |
 
@@ -81,6 +81,20 @@ usages.
   jour… » ; l'installeur est téléchargé, vérifié (taille, empreinte SHA-256) puis installé
   sans assistant, et l'application se relance.
 - `vendor/mupdf` : bibliothèque MuPDF (Rust) avec un correctif, voir `CORRECTIF.md`.
+
+## Fonctions (phase 5)
+
+- Modifier le texte d'origine : outil « Modifier le texte » (panneau Modifier), cliquer un
+  paragraphe et le corriger sur la page. Seules les lignes changées sont réécrites, à la même
+  place, même taille, même couleur, dans la police d'origine si elle contient les caractères,
+  sinon la même police installée sur l'ordinateur (réduite aux caractères utilisés), sinon la
+  plus proche (Arial, Times New Roman, Courier New, puis Helvetica / Times / Courier) ; le
+  résultat est relu, et l'utilisateur est prévenu de tout remplacement ou débordement.
+- Caviardage : tracer des zones, ou marquer toutes les occurrences d'un texte ; les marques
+  restent réversibles (liste des commentaires, Suppr) jusqu'à « Appliquer les caviardages »,
+  qui supprime vraiment texte, images, tracés, commentaires et champs couverts.
+- Nettoyer le document : métadonnées, JavaScript et actions automatiques, pièces jointes,
+  vignettes intégrées.
 
 ## Installation
 

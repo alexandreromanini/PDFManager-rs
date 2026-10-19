@@ -1131,6 +1131,11 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_owner_entered(|pw| with_app(move |app| app.unprotect(Some(pw.to_string()))));
     ui.on_prop_edited(|i, t| with_app(move |app| app.prop_edited(i.max(0) as usize, t.to_string())));
     ui.on_props_save(|| with_app(App::props_save));
+    ui.on_clean_run(|m, j, a, t| with_app(move |app| app.clean_run(m, j, a, t)));
+    // Index des polices installées (« Modifier le texte ») préparé à l'avance.
+    std::thread::spawn(|| {
+        crate::fonts::index();
+    });
     if cfg!(windows) {
         // Vérification discrète des mises à jour, une fois la fenêtre affichée.
         Timer::single_shot(Duration::from_secs(4), || with_app(|app| app.check_updates(false)));

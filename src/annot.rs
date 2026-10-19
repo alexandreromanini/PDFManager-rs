@@ -63,6 +63,7 @@ pub fn label(kind: &str) -> &'static str {
         "Ink" => "Dessin",
         "Stamp" => "Tampon",
         "Typewriter" => "Texte ajouté",
+        "Redact" => "Caviardage à appliquer",
         _ => "Commentaire",
     }
 }
@@ -130,6 +131,7 @@ fn kind_of(a: &PdfAnnotation) -> Option<&'static str> {
         T::Line => "Line",
         T::Ink => "Ink",
         T::Stamp => "Stamp",
+        T::Redact => "Redact",
         T::Polygon | T::PolyLine | T::Squiggly | T::Caret | T::FileAttachment => "Other",
         _ => return None, // liens, champs de formulaire, fenêtres de note…
     })

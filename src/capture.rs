@@ -64,6 +64,8 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
     let files = args[4..split].iter().map(std::path::PathBuf::from).collect();
     let actions = args.get(split + 1..).unwrap_or_default().to_vec();
 
+    // SAFETY : avant tout autre thread de l'application.
+    unsafe { std::env::set_var("PDFMANAGER_CAPTURE", "1") };
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     let queue = Queue::default();
     slint::platform::set_platform(Box::new(Offscreen { window: window.clone(), queue: queue.clone() }))

@@ -55,7 +55,8 @@ pub fn recognize(gray: &[u8], w: u32, h: u32, dpi: f32, language: &str) -> Resul
     let datadir = tessdata();
     let options = format!("ocr-language={language},ocr-datadir={},resolution={}", datadir.display(), dpi as i32);
     {
-        let mut writer = DocumentWriter::with_ocr(tmp.as_path(), &options).map_err(err)?;
+        let path = tmp.to_str().ok_or("chemin illisible")?; // UTF-8 : MuPDF le convertit sous Windows
+        let mut writer = DocumentWriter::with_ocr(path, &options).map_err(err)?;
         let device = writer.begin_page(mupdf::Rect::new(0.0, 0.0, pw, ph)).map_err(err)?;
         device.fill_image(&image, &Matrix::new_scale(pw, ph), 1.0, ColorParams::default()).map_err(err)?;
         writer.end_page(device).map_err(err)?;

@@ -55,7 +55,8 @@ pub fn image_targets(stem: &str, pages: &[usize], count: usize, folder: &Path, e
 pub fn to_docx(pdf: &Pdf, target: &Path) -> Result<(), String> {
     let part = target.with_extension("docx.part");
     let result = (|| {
-        let mut writer = DocumentWriter::new(part.as_path(), "docx", "").map_err(err)?;
+        let path = part.to_str().ok_or("chemin illisible")?; // UTF-8 : MuPDF le convertit sous Windows
+        let mut writer = DocumentWriter::new(path, "docx", "").map_err(err)?;
         for i in 0..pdf.page_count() {
             let page = pdf.doc().load_page(i as i32).map_err(err)?;
             let device = writer.begin_page(page.bounds().map_err(err)?).map_err(err)?;

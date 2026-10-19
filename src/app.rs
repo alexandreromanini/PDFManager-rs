@@ -19,10 +19,13 @@ use crate::engine::{DocId, Engine};
 use crate::layout::{self, Fit, Layout, Mode};
 use crate::pdf::{self, Bookmark, Link, OpenError, Pdf, Rect, Word};
 use crate::settings::Settings;
+use crate::annot::{self, AnnotInfo};
 use crate::{AppWindow, Area, BookmarkData, PageData, RecentData, TabData, ThumbData};
 
 #[path = "edit_ui.rs"]
 mod edit_ui;
+#[path = "annot_ui.rs"]
+mod annot_ui;
 
 const THUMB_WIDTH: f32 = 110.0;
 const RAIL_WIDTH: f32 = 260.0 + 1.0 + 48.0 + 1.0;
@@ -192,6 +195,10 @@ struct Tab {
     can_redo: bool,
     signed: bool,
     overwrite_confirmed: bool,
+    comments: Vec<AnnotInfo>,
+    picked: Option<AnnotInfo>,
+    gesture: Option<annot_ui::Gesture>,
+    editor: Option<annot_ui::Editor>,
 }
 
 struct PendingOpen {
@@ -218,6 +225,9 @@ pub struct App {
     merge_files: Vec<PathBuf>,
     close_after_save: Option<DocId>,
     quit_after_saves: usize,
+    tool: String,
+    pending_image: Option<Vec<u8>>,
+    pending_note: Option<annot_ui::NoteTarget>,
 }
 
 impl App {
@@ -266,8 +276,9 @@ impl App {
                 let sizes = pdf.page_sizes().to_vec();
                 let marks = pdf.bookmarks();
                 let signed = pdf.signed;
+                let comments = annot::list(&pdf);
                 docs.insert(id, pdf);
-                from_engine(move |app| app.on_opened(id, path, sizes, marks, signed));
+                from_engine(move |app| app.on_opened(id, path, sizes, marks, signed, comments));
             }
             Err(OpenError::NeedsPassword) => {
                 let tried = password.is_some();
@@ -329,7 +340,7 @@ impl App {
     }
 
     fn on_opened(&mut self, id: DocId, path: PathBuf, sizes: Vec<(f32, f32)>, bookmarks: Vec<Bookmark>,
-                 signed: bool) {
+                 signed: bool, comments: Vec<AnnotInfo>) {
         let thumbs = self.thumb_model(id, &sizes, 0);
         self.tabs.push(Tab {
             id,
@@ -363,6 +374,10 @@ impl App {
             can_redo: false,
             signed,
             overwrite_confirmed: false,
+            comments,
+            picked: None,
+            gesture: None,
+            editor: None,
         });
         self.settings.add_recent(&path);
         self.settings.save();
@@ -416,6 +431,7 @@ impl App {
         let title = self.tab().map(|t| t.name.clone()).unwrap_or_default();
         ui.set_doc_title(title.into());
         self.sync_state();
+        self.sync_comments();
         ui.set_recent(ModelRc::new(VecModel::from(self.recent_rows())));
     }
 
@@ -535,6 +551,7 @@ impl App {
         let mut wanted = HashSet::new();
         let mut rows = vec![];
         let current_hit = tab.hit_index.and_then(|i| tab.hits.get(i)).copied();
+        let line = matches!(self.tool.as_str(), "line" | "arrow");
         for p in &shown {
             let i = p.index;
             let size = tab.sizes[i];
@@ -542,6 +559,7 @@ impl App {
             if image.is_none_or(|(s, r, v, _)| (*s, *r, *v) != key) {
                 wanted.insert((tab.id, i, key.0, key.1, key.2));
             }
+            let (frames, path) = App::overlay(tab, i, line);
             let boxes = |rects: Vec<&Rect>| -> ModelRc<Area> {
                 ModelRc::new(VecModel::from(rects.into_iter().map(|r| to_view(r, size, tab.rotation, tab.zoom)).collect::<Vec<_>>()))
             };
@@ -558,6 +576,8 @@ impl App {
                     .flat_map(|(_, ws)| ws.iter().map(|w| &w.rect)).collect()),
                 draft: boxes(tab.crop.iter().filter(|(pg, _, _)| *pg == i)
                     .map(|(_, a, b)| Rect::new(a.0, a.1, b.0, b.1)).collect::<Vec<_>>().iter().collect()),
+                marked: boxes(frames.iter().collect()),
+                path: path.into(),
             });
         }
         // Les images loin de la vue sont oubliées : la mémoire reste bornée.
@@ -567,6 +587,7 @@ impl App {
         ui.set_pages(ModelRc::new(VecModel::from(rows)));
         *self.wanted.lock().unwrap() = wanted.clone();
         self.pending.retain(|k| wanted.contains(k));
+        self.sync_editor();
         for k in wanted {
             if self.pending.insert(k) {
                 let wanted = self.wanted.clone();
@@ -806,6 +827,9 @@ impl App {
             self.update_view();
             return;
         }
+        if self.tool_press(page, pt) {
+            return;
+        }
         self.ensure_words(page);
         if let Some(tab) = self.tab() {
             tab.press = Some((page, pt, false));
@@ -817,6 +841,9 @@ impl App {
     pub fn page_drag(&mut self, page: usize, x: f32, y: f32) {
         let Some(pt) = self.page_point(page, x, y) else { return };
         let crop_mode = self.crop_mode;
+        if !crop_mode && self.tool_drag(page, pt) {
+            return;
+        }
         let Some(tab) = self.tab() else { return };
         if crop_mode {
             if let Some((p, a, _)) = tab.crop.filter(|c| c.0 == page) {
@@ -841,6 +868,9 @@ impl App {
     pub fn page_release(&mut self, page: usize, x: f32, y: f32) {
         if self.crop_mode {
             self.crop_done();
+            return;
+        }
+        if self.tool_release(page) {
             return;
         }
         let Some(pt) = self.page_point(page, x, y) else { return };
@@ -1014,6 +1044,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     let settings = Settings::load();
     ui.set_sidebar_visible(settings.sidebar);
     ui.set_version(env!("CARGO_PKG_VERSION").into());
+    ui.set_author(settings.author.clone().into());
     let app = App {
         ui: ui.as_weak(),
         engine: Engine::start(),
@@ -1032,6 +1063,9 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         merge_files: vec![],
         close_after_save: None,
         quit_after_saves: 0,
+        tool: String::new(),
+        pending_image: None,
+        pending_note: None,
     };
     app.apply_theme();
     APP.with(|cell| *cell.borrow_mut() = Some(app));
@@ -1072,6 +1106,21 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_password_entered(|pw| with_app(move |a| a.password_entered(pw.to_string())));
     ui.on_password_cancelled(|| with_app(App::password_cancelled));
     ui.on_action(|a| with_app(move |app| app.action(a.as_str())));
+    ui.on_set_tool(|t| with_app(move |app| app.set_tool(t.as_str())));
+    ui.on_pick_color(|text, i| with_app(move |app| app.pick_color(text, i.clamp(0, 5) as usize)));
+    ui.on_text_size_changed(|s| with_app(move |app| app.text_size_changed(s)));
+    ui.on_set_author(|a| with_app(move |app| app.set_author(a.to_string())));
+    ui.on_page_double(|p, x, y| with_app(move |app| app.page_double(p.max(0) as usize, x, y)));
+    ui.on_note_done(|t| with_app(move |app| app.note_done(t.to_string())));
+    ui.on_comment_clicked(|i| with_app(move |app| app.comment_clicked(i.max(0) as usize)));
+    ui.on_comment_edit(|i| with_app(move |app| app.comment_edit(i.max(0) as usize)));
+    ui.on_comment_delete(|i| with_app(move |app| app.comment_delete(i.max(0) as usize)));
+    ui.on_header_run(|tl, tc, tr, bl, bc, br, size, start, pages| with_app(move |app| {
+        app.header_run([tl, tc, tr, bl, bc, br].map(|s| s.to_string()), size, start, pages.to_string())
+    }));
+    ui.on_watermark_run(|text, size, opacity, angle, pages| with_app(move |app| {
+        app.watermark_run(text.to_string(), size, opacity, angle, pages.to_string())
+    }));
     ui.on_set_panel(|p| with_app(move |app| app.set_panel(p)));
     ui.on_thumb_press(|i, ctrl, shift| with_app(move |app| app.thumb_press(i.max(0) as usize, ctrl, shift)));
     ui.on_thumb_drag(|i, y, h| with_app(move |app| app.thumb_drag(i.max(0) as usize, y, h)));

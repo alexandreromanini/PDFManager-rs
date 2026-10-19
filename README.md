@@ -16,7 +16,7 @@ usages.
 | 0 | Essai : ouvrir un PDF, faire défiler ses pages, build Windows | ✅ |
 | 1 | Lecteur complet (voir ci-dessous) | ✅ 0.1.0 |
 | 2 | Enregistrer, annuler/rétablir, organiser les pages | ✅ 0.2.0 |
-| 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | à venir |
+| 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | ✅ 0.3.0 |
 | 4 | Formulaires, protection, impression, mises à jour | à venir |
 | 5 | Modifier le texte existant, caviardage | à venir |
 | 6 | OCR, assistant IA, conversions | à venir |
@@ -49,6 +49,21 @@ usages.
   Suppr pour supprimer.
 - Fermer un onglet ou quitter avec des modifications : Enregistrer / Ne pas enregistrer /
   Annuler.
+
+## Fonctions (phase 3)
+
+- Panneau « Commenter » : surligner, souligner, barrer (sur le texte sélectionné), note,
+  texte libre, rectangle, ellipse, ligne, flèche, dessin à main levée, tampon ; 6 couleurs,
+  épaisseur des traits, nom de l'auteur.
+- Avec l'outil Sélection : cliquer un commentaire le sélectionne, le glisser le déplace,
+  double-clic pour modifier son texte, Suppr pour le supprimer.
+- Liste des commentaires dans le rail de droite (page, auteur, date, texte) : clic pour y
+  aller, double-clic pour modifier, corbeille pour supprimer.
+- Panneau « Modifier » : ajouter du texte directement sur la page (taille, couleur ;
+  modifiable ensuite), ajouter une image (cadre tracé à la souris).
+- En-tête, pied de page et numérotation ({n}, {total}, {date}, {fichier}) et filigrane
+  (taille, opacité, inclinaison), sur toutes les pages ou une plage.
+- Tout est annulable (Ctrl+Z), et reste droit et bien placé sur les pages pivotées.
 
 ## Installation
 

@@ -238,6 +238,10 @@ impl Pdf {
         Ok(())
     }
 
+    pub fn password(&self) -> Option<&str> {
+        self.password.as_deref()
+    }
+
     pub fn is_encrypted(&self) -> bool {
         self.doc.metadata(mupdf::MetadataName::Encryption).is_ok_and(|e| !e.is_empty() && e != "None")
     }

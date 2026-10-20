@@ -447,7 +447,7 @@ def g_bords():
     f = fresh("bord.pdf"); img = REPO + "/tests/fixtures/image.png"
     log, code, dt = run([f], ["tool:stamp", "drag:0,920,1300,920,1300", "tool:note", "drag:0,925,1305,925,1305", "note:x",
         "tool:freetext", "drag:0,920,1300,920,1300", "note:texte au bord", "action:add-image", "drag:0,920,1300,920,1300", "sleep:800",
-        "panel:4", "tool:field-text", "drag:0,920,1300,920,1300", "sleep:500", "tool:", "action:save", "sleep:1000"],
+        "panel:4", "tool:field-text", "drag:0,920,1300,920,1300", "sleep:400", "note:", "sleep:500", "tool:", "action:save", "sleep:1000"],
         picks=[img], answers=["oui", "oui"])
     p = pymupdf.open(f)[0]; page = p.rect + (-0.5, -0.5, 0.5, 0.5)
     objs = [a.rect for a in p.annots()] + [w.rect for w in p.widgets()] + [pymupdf.Rect(i["bbox"]) for i in p.get_image_info()]
@@ -456,11 +456,11 @@ def g_bords():
 # ----- 9. clavier et souris (fenêtre réelle : touches et clics envoyés) ---------------------
 def g_clavier():
     f = fresh("clavier.pdf")
-    log, code, dt = run([f], ["key:Tab"] * 8 + ["key:Return", "etat"])
-    check("A7 au clavier : 8 Tab puis Entrée ouvrent « Organiser les pages »", any("panneau=1" in x for x in etat(log)), str(etat(log)))
+    log, code, dt = run([f], ["key:Tab"] * 9 + ["key:Return", "etat"])
+    check("A7 au clavier : 9 Tab (après la recherche d'outil) puis Entrée ouvrent « Organiser les pages »", any("panneau=1" in x for x in etat(log)), str(etat(log)))
     log, code, dt = run([f], ["tool:note", "key:Tab", "key:Tab", "key:Escape", "etat"])
     check("A8 bouton au focus : Échap atteint toujours les raccourcis", any("outil=«  »" in x for x in etat(log)), str(etat(log)))
-    log, code, dt = run([f], ["click:100,108", "etat", "click:1256,158", "etat", "click:120,26", "etat"])
+    log, code, dt = run([f], ["click:100,150", "etat", "click:1256,158", "etat", "click:120,26", "etat"])
     e = [x for x in etat(log) if x.startswith("accueil")]
     check("A9 clics souris : catalogue, panneau latéral, Accueil",
           "panneau=1" in e[0] and "rail=1" in e[1] and "accueil=true" in e[2], str(e))

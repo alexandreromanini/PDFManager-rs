@@ -85,6 +85,12 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS; // la fenêtre déjà ouverte s'en charge
     }
     log(&format!("Démarrage de PDFManager (Rust) {}", env!("CARGO_PKG_VERSION")));
+    // Sous Windows, un plantage ferme la fenêtre sans rien afficher : on le garde au journal.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log(&format!("PLANTAGE : {info}\n{}", std::backtrace::Backtrace::force_capture()));
+        default_hook(info);
+    }));
     let ui = match AppWindow::new() {
         Ok(ui) => ui,
         Err(e) => {

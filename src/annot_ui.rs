@@ -73,7 +73,7 @@ impl App {
         self.tool = tool.to_string();
         let ui = self.ui();
         ui.set_tool(tool.into());
-        ui.set_drawing(!tool.is_empty() && !MARKUP.contains(&tool));
+        ui.set_drawing(!tool.is_empty() && tool != "hand" && !MARKUP.contains(&tool));
         if let Some(tab) = self.tab() {
             tab.gesture = None;
             tab.picked_image = None;
@@ -95,6 +95,7 @@ impl App {
             "image" => "Tracez le cadre de l'image (ou cliquez).",
             "edit-text" => "Cliquez un paragraphe pour le corriger sur place ; cliquez à côté pour valider (Échap pour annuler).",
             "redact" => "Tracez les zones à caviarder ; rien n'est retiré avant « Appliquer les caviardages ».",
+            "hand" => "Glissez la page pour la faire défiler (V ou Échap : retour à la sélection).",
             "images" => "Cliquez une image : glissez-la pour la déplacer, tirez sa poignée (coin bas droit) pour l'agrandir, Suppr pour la retirer.",
             "link" => "Tracez la zone du lien. Un simple clic sur un lien existant propose de le supprimer.",
             "digital-sign" => "Tracez le cadre de la signature (ou cliquez), ou cliquez un champ de signature vide.",

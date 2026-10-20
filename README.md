@@ -154,4 +154,5 @@ installer `libclang-common-18-dev`.
 
 ## Licence
 
-AGPL-3.0-or-later (MuPDF est sous AGPL). Interface réalisée avec Slint.
+AGPL-3.0-or-later (MuPDF est sous AGPL). Interface réalisée avec Slint. Profil `resources/sRGB.icc`
+(OutputIntent des PDF/A) : celui de pikepdf, produit par lcms, « no copyright, use freely ».

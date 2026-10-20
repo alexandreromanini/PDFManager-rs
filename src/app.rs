@@ -1239,6 +1239,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_toggle_fullscreen(|| with_app(|a| a.toggle_fullscreen()));
     ui.on_present_start(|| with_app(|a| a.present_start()));
     ui.on_external_tools(|| with_app(|a| a.external_tools()));
+    ui.on_tool_search(|q| with_app(move |a| a.tool_search(&q)));
     ui.on_open_log_dir(|| with_app(|a| a.open_log_dir()));
     ui.on_clear_recent(|| with_app(|a| a.clear_recent()));
     ui.on_present_step(|d| with_app(move |a| a.present_step(d)));

@@ -157,6 +157,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
             "menu" => ui.invoke_show_menu(),
+            "tool-search" => app::with_app(move |a| a.tool_search(&arg)),
             "sig-import" => app::with_app(|a| a.sig_import()),
             "sig-whiten" => {
                 ui.set_sig_whiten(arg == "1");

@@ -163,6 +163,32 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
                 window.dispatch_event(slint::platform::WindowEvent::PointerPressed { position, button });
                 window.dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
             }
+            // mouse-drag:x0,y0,x1,y1 (vrai glisser à la souris, pixels logiques de la fenêtre)
+            "mouse-drag" => {
+                let v: Vec<f32> = arg.split(',').filter_map(|n| n.parse().ok()).collect();
+                if v.len() == 4 {
+                    use slint::platform::{PointerEventButton, WindowEvent};
+                    // un dessin d'abord : les pages (liste) n'existent qu'une fois dessinées
+                    let size = window.size();
+                    let mut scratch = vec![PremultipliedRgbaColor::default(); (size.width * size.height) as usize];
+                    window.request_redraw();
+                    window.draw_if_needed(|r| {
+                        r.render(&mut scratch, size.width as usize);
+                    });
+                    pump(&queue, 50);
+                    let at = |k: f32| slint::LogicalPosition::new(v[0] + (v[2] - v[0]) * k, v[1] + (v[3] - v[1]) * k);
+                    let button = PointerEventButton::Left;
+                    window.dispatch_event(WindowEvent::PointerMoved { position: at(0.0) });
+                    pump(&queue, 50);
+                    window.dispatch_event(WindowEvent::PointerPressed { position: at(0.0), button });
+                    pump(&queue, 50);
+                    for k in 1..=10 {
+                        window.dispatch_event(WindowEvent::PointerMoved { position: at(k as f32 / 10.0) });
+                        pump(&queue, 20);
+                    }
+                    window.dispatch_event(WindowEvent::PointerReleased { position: at(1.0), button });
+                }
+            }
             // key:Tab, key:Return, key:espace… (touche envoyée à la fenêtre)
             "key" => {
                 let text: slint::SharedString = match arg.as_str() {

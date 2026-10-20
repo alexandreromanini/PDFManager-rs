@@ -247,6 +247,11 @@ pub struct App {
     ai: Option<crate::assistant::Engine>,
     ai_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     comparison: Option<sign_ui::Comparison>,
+    /// Présentation en cours : page affichée.
+    presenting: Option<usize>,
+    /// Pages affichées : un seul modèle, mis à jour sur place. En affecter un nouveau
+    /// recréerait les pages, et le geste en cours (tracé, sélection) perdrait la souris.
+    pages: Rc<VecModel<PageData>>,
     sign_target: Option<sign_ui::SignTarget>,
     sig_strokes: Vec<Vec<(f32, f32)>>,
     sig_png: Option<Vec<u8>>,
@@ -496,7 +501,7 @@ impl App {
     fn sync_document(&mut self) {
         let ui = self.ui();
         let Some(tab) = self.tab() else {
-            ui.set_pages(ModelRc::default());
+            self.pages.set_vec(vec![]);
             return;
         };
         let marks: Vec<BookmarkData> = tab.bookmarks.iter()
@@ -580,7 +585,6 @@ impl App {
     fn update_view(&mut self) {
         let scale = self.scale();
         let vh = self.viewport.1.max(200.0);
-        let ui = self.ui();
         let Some(tab) = (if self.on_home { None } else { self.tabs.get_mut(self.current) }) else { return };
         let key = ((tab.zoom * scale * 1000.0).round() as u32, tab.rotation, tab.version);
         let shown = layout::visible(&tab.layout, tab.top, vh, vh / 2.0);
@@ -621,7 +625,17 @@ impl App {
         let keep: HashSet<usize> = layout::visible(&tab.layout, tab.top, vh, vh * 3.0).iter().map(|p| p.index).collect();
         tab.images.retain(|i, _| keep.contains(i));
         let (id, zoom, rotation) = (tab.id, tab.zoom * scale, tab.rotation);
-        ui.set_pages(ModelRc::new(VecModel::from(rows)));
+        // Mêmes pages qu'avant : lignes mises à jour sur place (les pages, et le geste en
+        // cours, restent) ; sinon la liste est remplacée.
+        let same = self.pages.row_count() == rows.len()
+            && rows.iter().enumerate().all(|(k, r)| self.pages.row_data(k).is_some_and(|o| o.index == r.index));
+        if same {
+            for (k, r) in rows.into_iter().enumerate() {
+                self.pages.set_row_data(k, r);
+            }
+        } else {
+            self.pages.set_vec(rows);
+        }
         *self.wanted.lock().unwrap() = wanted.clone();
         self.pending.retain(|k| wanted.contains(k));
         self.sync_editor();
@@ -1112,6 +1126,8 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         ai: None,
         ai_cancel: None,
         comparison: None,
+        presenting: None,
+        pages: Rc::new(VecModel::default()),
         sign_target: None,
         sig_strokes: vec![],
         sig_png: None,
@@ -1119,6 +1135,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         show_signatures_after_open: None,
     };
     app.apply_theme();
+    ui.set_pages(ModelRc::from(app.pages.clone()));
     APP.with(|cell| *cell.borrow_mut() = Some(app));
     with_app(|app| app.sync_tabs());
 

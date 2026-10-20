@@ -437,9 +437,9 @@ impl App {
         let on_home = self.on_home;
         for (i, t) in self.tabs.iter().enumerate() {
             eprintln!("ETAT : onglet {i}{} « {} » pages={} modifié={} annuler={} rétablir={} commentaires={} champs={} \
-                       signé={} page={} zoom={:.2} rotation={} sélection={:?} recherche={}/{}",
+                       signé={} page={} haut={:.0} zoom={:.2} rotation={} sélection={:?} recherche={}/{}",
                       if i == current && !on_home { "*" } else { "" }, t.name, t.sizes.len(), t.modified, t.can_undo, t.can_redo,
-                      t.comments.len(), t.fields.len(), t.signed, t.current + 1, t.zoom, t.rotation, t.selected,
+                      t.comments.len(), t.fields.len(), t.signed, t.current + 1, t.top, t.zoom, t.rotation, t.selected,
                       t.hit_index.map_or(0, |h| h + 1), t.hits.len());
         }
         let ui = self.ui();

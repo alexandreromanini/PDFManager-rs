@@ -53,6 +53,8 @@ pub(super) enum NoteTarget {
     Combo(usize, Rect),
     RedactText,
     Link(usize, Rect),
+    /// Nouveau champ de formulaire : son nom.
+    FieldName(usize, Rect, &'static str),
 }
 
 impl App {
@@ -558,6 +560,13 @@ impl App {
             }
             NoteTarget::Combo(page, r) => self.add_combo(page, r, &text),
             NoteTarget::RedactText => self.redact_text(text.trim().to_string()),
+            NoteTarget::FieldName(page, r, kind) => {
+                let name = text.trim().to_string();
+                self.edit("", move |pdf| {
+                    let name = if name.is_empty() { crate::forms::unique_name(pdf, kind) } else { name };
+                    crate::forms::add_field(pdf, page, r, kind, &name, &[]).map(|_| None)
+                });
+            }
             NoteTarget::Link(page, r) => {
                 self.edit("", move |pdf| annot::add_link(pdf, page, r, &text).map(|_| None));
             }

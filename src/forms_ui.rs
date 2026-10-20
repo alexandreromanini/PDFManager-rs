@@ -59,7 +59,7 @@ impl App {
     }
 
     /// Remplir un champ : saisie sur place, liste de choix, ou case cochée / décochée.
-    fn fill(&mut self, f: FieldInfo) {
+    pub(super) fn fill(&mut self, f: FieldInfo) {
         if f.readonly {
             return self.toast(&format!("Le champ « {} » est en lecture seule.", f.name));
         }
@@ -128,11 +128,32 @@ impl App {
             self.show_note("Choix de la liste, un par ligne", "");
             return true;
         }
-        self.edit("", move |pdf| {
+        // nom proposé (le premier libre), modifiable, comme la version Python
+        let Some(id) = self.tab().map(|t| t.id) else { return true };
+        self.engine.run(move |docs| {
+            let Some(pdf) = docs.get(&id) else { return };
             let name = forms::unique_name(pdf, kind);
-            forms::add_field(pdf, page, rect, kind, &name, &[]).map(|_| None)
+            from_engine(move |app| {
+                app.pending_note = Some(super::annot_ui::NoteTarget::FieldName(page, rect, kind));
+                app.show_note("Nom du champ", &name);
+            });
         });
         true
+    }
+
+    /// Tab / Maj+Tab pendant la saisie d'un champ texte : valider, puis le champ texte suivant
+    /// (ou précédent), dans l'ordre des pages puis de haut en bas.
+    pub(super) fn field_step(&mut self, forward: bool) {
+        let Some(current) = self.tab().and_then(|t| t.editor.as_ref()).and_then(|e| e.field.clone()) else { return };
+        self.editor_commit();
+        let Some(tab) = self.tab() else { return };
+        let mut order: Vec<FieldInfo> = tab.fields.iter().filter(|f| f.kind == "text" && !f.readonly).cloned().collect();
+        order.sort_by(|a, b| a.page.cmp(&b.page).then(a.rect.y0.total_cmp(&b.rect.y0)).then(a.rect.x0.total_cmp(&b.rect.x0)));
+        let Some(k) = order.iter().position(|f| f.xref == current.xref) else { return };
+        let n = order.len();
+        let next = order[if forward { (k + 1) % n } else { (k + n - 1) % n }].clone();
+        self.go_to(next.page);
+        self.fill(next);
     }
 
     pub(super) fn add_combo(&mut self, page: usize, rect: Rect, text: &str) {

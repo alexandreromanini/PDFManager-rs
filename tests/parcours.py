@@ -261,9 +261,10 @@ def g_modifier():
 # ----- 4. formulaires, protection, propriétés --------------------------------------------------
 def g_formulaires():
     f = fresh("form.pdf")
-    acts = ["panel:4", "tool:field-text", "drag:0,100,300,400,330", "tool:field-check", "drag:0,100,360,100,360",
-            "tool:field-combo", "drag:0,100,400,300,425", "note:Rouge\nVert\n\nBleu", "sleep:500",
-            "tool:field-signature", "drag:0,100,460,400,540", "sleep:500", "tool:", "etat",
+    # chaque champ tracé demande son nom (proposé : Texte1, Case1…) ; « note: » vide le garde
+    acts = ["panel:4", "tool:field-text", "drag:0,100,300,400,330", "sleep:300", "note:", "tool:field-check", "drag:0,100,360,100,360",
+            "sleep:300", "note:", "tool:field-combo", "drag:0,100,400,300,425", "note:Rouge\nVert\n\nBleu", "sleep:500",
+            "tool:field-signature", "drag:0,100,460,400,540", "sleep:300", "note:", "sleep:500", "tool:", "etat",
             "drag:0,200,315,200,315", "sleep:300", "type:Jean Dupré 😀 <&>", "action:editor-commit", "sleep:500",
             "drag:0,110,370,110,370", "sleep:500", "drag:0,110,370,110,370", "sleep:500", "drag:0,110,370,110,370", "sleep:500",
             "drag:0,200,412,200,412", "choice:1", "sleep:500",
@@ -539,6 +540,16 @@ def g_couleurs():
     check("C2 couleur mémorisée par outil (rectangle : vert, ellipse : bleu)", cols[1:] == [("Square", green), ("Circle", blue)], str(cols))
     log, code, dt = run([f], ["custom-color:vert"])
     check("C3 code de couleur invalide : message", any("n'est pas un code de couleur" in x for x in lines(log, "ERREUR")), str(lines(log, "ERREUR")))
+
+def g_champs():
+    f = fresh("champs.pdf")
+    log, code, dt = run([f], ["panel:4", "tool:field-text", "drag:0,100,300,400,330", "sleep:300", "note:Nom",
+                              "tool:field-text", "drag:0,100,350,400,380", "sleep:300", "note:Prénom", "sleep:500", "tool:",
+                              "drag:0,200,315,200,315", "sleep:300", "type:Dupont", "key:Tab", "sleep:500", "type:Jean", "action:editor-commit",
+                              "sleep:500", "action:save", "sleep:800"], answers=["oui"])
+    vals = {w.field_name: w.field_value for w in pymupdf.open(f)[0].widgets()}
+    check("F1 nom du champ saisi à la création", set(vals) == {"Nom", "Prénom"}, str(vals))
+    check("F2 Tab passe au champ suivant (Dupont, puis Jean)", vals.get("Nom") == "Dupont" and vals.get("Prénom") == "Jean", str(vals))
 
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":

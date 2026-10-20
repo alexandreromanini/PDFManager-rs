@@ -56,7 +56,7 @@ fn write_error(target: &Path, e: &std::io::Error) -> String {
 }
 
 impl App {
-    fn current_tab(&self) -> Option<&Tab> {
+    pub(super) fn current_tab(&self) -> Option<&Tab> {
         if self.on_home { None } else { self.tabs.get(self.current) }
     }
 
@@ -125,7 +125,7 @@ impl App {
                     match name {
                         "export-images" => ui.invoke_show_images(),
                         "compress" => ui.invoke_show_compress(),
-                        _ => ui.invoke_show_ocr(),
+                        _ => ui.invoke_show_ocr(self.current_tab().is_some_and(|t| t.signed)),
                     }
                 }
             }

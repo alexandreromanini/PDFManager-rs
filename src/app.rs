@@ -1274,6 +1274,12 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     }));
     ui.on_export_images_run(|jpg, dpi, pages| with_app(move |app| app.export_images_run(jpg, dpi, pages.to_string())));
     ui.on_compress_run(|level| with_app(move |app| app.compress_run(level.max(0) as usize)));
+    // Champs « Pages » des fenêtres : vérifiés avant de fermer, l'erreur s'affiche dedans
+    // (une boîte système ouverte juste après la fermeture d'une fenêtre plantait sous Windows).
+    ui.on_pages_error(|spec| APP.with(|c| {
+        let count = c.try_borrow().ok().and_then(|a| a.as_ref().and_then(|a| a.current_tab().map(|t| t.sizes.len()))).unwrap_or(0);
+        crate::edit::parse_ranges(&spec, count).err().unwrap_or_default().into()
+    }));
     ui.on_ocr_run(|lang, pages, all, dpi| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all, dpi)));
     ui.on_ai_ask(|q| with_app(move |app| app.ai_ask(q.to_string())));
     ui.on_chat_page(|p| with_app(move |app| app.go_to((p.max(1) - 1) as usize)));

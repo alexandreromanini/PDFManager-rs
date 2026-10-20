@@ -34,9 +34,15 @@ impl App {
         Some((tab.id, tab.path.clone(), stem))
     }
 
+    /// Fichier produit : l'ouvrir ? Un PDF s'ouvre ici, en onglet (comme la version Python),
+    /// les autres dans leur programme.
     fn offer_open(&mut self, path: PathBuf, what: &str) {
         if super::edit_ui::ask(what, &format!("{what} : {}\n\nOuvrir le fichier ?", path.display())) {
-            let _ = open::that(&path);
+            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+                self.open_path(path);
+            } else {
+                let _ = open::that(&path);
+            }
         }
     }
 

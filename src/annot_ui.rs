@@ -14,6 +14,7 @@ use crate::{edit, CommentData};
 /// Mêmes pastilles que la version Python (commentaires, puis texte ajouté).
 pub const SWATCHES: [u32; 6] = [0xFFD60A, 0x7BD389, 0x64B5F6, 0xF48FB1, 0xE53935, 0x1B1B1B];
 pub const TEXT_SWATCHES: [u32; 6] = [0x000000, 0xE53935, 0x1E88E5, 0x43A047, 0xFB8C00, 0x8E24AA];
+const WATERMARK: [u32; 5] = [0x999999, 0xE53935, 0x1E88E5, 0x43A047, 0x000000];
 
 const MARKUP: [&str; 3] = ["highlight", "underline", "strikeout"];
 
@@ -70,8 +71,26 @@ impl App {
 
     pub fn set_tool(&mut self, tool: &str) {
         self.editor_commit();
-        self.tool = tool.to_string();
         let ui = self.ui();
+        // épaisseur de l'outil quitté gardée ; couleur et épaisseur du nouvel outil reprises
+        if !self.tool.is_empty() {
+            self.settings.tool_strokes.insert(self.tool.clone(), ui.get_stroke_width());
+        }
+        if let Some(&hex) = self.settings.tool_colors.get(tool) {
+            let i = match SWATCHES.iter().position(|&s| s == hex) {
+                Some(i) => i,
+                None => {
+                    self.custom[0] = Some(hex);
+                    ui.set_custom_color(slint::Color::from_rgb_u8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8));
+                    6
+                }
+            };
+            ui.set_color_index(i as i32);
+        }
+        if let Some(&w) = self.settings.tool_strokes.get(tool) {
+            ui.set_stroke_width(w);
+        }
+        self.tool = tool.to_string();
         ui.set_tool(tool.into());
         ui.set_drawing(!tool.is_empty() && tool != "hand" && !MARKUP.contains(&tool));
         if let Some(tab) = self.tab() {
@@ -109,11 +128,29 @@ impl App {
         self.update_view();
     }
 
+    /// Couleur `i` du nuancier (6 : couleur personnalisée).
+    fn swatch(&self, text: bool, i: usize) -> u32 {
+        match (text, i) {
+            (_, 6) => self.custom[text as usize].unwrap_or(if text { TEXT_SWATCHES[0] } else { SWATCHES[0] }),
+            (true, i) => TEXT_SWATCHES[i.min(5)],
+            (false, i) => SWATCHES[i.min(5)],
+        }
+    }
+
     pub fn pick_color(&mut self, text: bool, i: usize) {
+        if i == 6 && self.custom[text as usize].is_none() {
+            return; // aucune couleur personnalisée encore : la fenêtre « Autre couleur » s'ouvre
+        }
         let ui = self.ui();
         if text { ui.set_text_color_index(i as i32) } else { ui.set_color_index(i as i32) }
+        let hex = self.swatch(text, i);
+        if !text && !self.tool.is_empty() {
+            // mémorisée pour cet outil (comme la version Python)
+            self.settings.tool_colors.insert(self.tool.clone(), hex);
+            self.settings.save();
+        }
         let editing = self.tab().and_then(|t| t.editor.as_mut()).map(|e| {
-            e.color = color(TEXT_SWATCHES[i]);
+            e.color = color(hex);
         });
         if editing.is_some() && text {
             self.update_view();
@@ -121,7 +158,7 @@ impl App {
         }
         let Some(a) = self.tab().and_then(|t| t.picked.clone()) else { return };
         if a.is_text() == text {
-            let c = color(if text { TEXT_SWATCHES[i] } else { SWATCHES[i] });
+            let c = color(hex);
             let author = self.author();
             self.annot_edit(move |pdf| annot::set_color(pdf, a.page, a.xref, c, &author).map(|_| 0));
         }
@@ -139,12 +176,24 @@ impl App {
         self.annot_edit(move |pdf| annot::set_text_size(pdf, a.page, a.xref, size, &author).map(|_| 0));
     }
 
+    /// « Autre couleur… » : code #RRGGBB.
+    pub fn custom_color_set(&mut self, text: bool, hex: &str) {
+        let h = hex.trim().trim_start_matches('#');
+        let Some(rgb) = (h.len() == 6).then(|| u32::from_str_radix(h, 16).ok()).flatten() else {
+            return self.error(&format!("« {} » n'est pas un code de couleur (exemple : #2E7D32).", hex.trim()));
+        };
+        self.custom[text as usize] = Some(rgb);
+        let c = slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+        if text { self.ui().set_custom_text_color(c) } else { self.ui().set_custom_color(c) }
+        self.pick_color(text, 6);
+    }
+
     fn comment_color(&self) -> Color {
-        color(SWATCHES[self.ui().get_color_index().clamp(0, 5) as usize])
+        color(self.swatch(false, self.ui().get_color_index().clamp(0, 6) as usize))
     }
 
     fn text_color(&self) -> Color {
-        color(TEXT_SWATCHES[self.ui().get_text_color_index().clamp(0, 5) as usize])
+        color(self.swatch(true, self.ui().get_text_color_index().clamp(0, 6) as usize))
     }
 
     /// Modification de commentaire : la sélection de pages est gardée.
@@ -678,23 +727,24 @@ impl App {
         }
     }
 
-    pub fn header_run(&mut self, texts: [String; 6], size: i32, start: i32, pages: String) {
+    pub fn header_run(&mut self, texts: [String; 6], size: i32, start: i32, pages: String, margin_mm: i32) {
         let Some(pages) = self.pages_of(&pages) else { return };
         let file = self.tab().and_then(|t| t.path.file_stem().map(|s| s.to_string_lossy().into_owned())).unwrap_or_default();
         let texts: Vec<(&'static str, String)> = annot::POSITIONS.into_iter().zip(texts).collect();
         let (size, start) = (size.clamp(4, 72) as f32, start.max(0) as usize);
         let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
         self.edit("En-tête et pied de page ajoutés (Ctrl+Z pour annuler).", move |pdf| {
-            annot::header_footer(pdf, &pages, &texts, size, 28.35, start, (0.0, 0.0, 0.0), &file).map(|_| Some(keep))
+            annot::header_footer(pdf, &pages, &texts, size, margin_mm.clamp(0, 60) as f32 * 72.0 / 25.4, start, (0.0, 0.0, 0.0), &file)
+                .map(|_| Some(keep))
         });
     }
 
-    pub fn watermark_run(&mut self, text: String, size: i32, opacity: i32, angle: i32, pages: String) {
+    pub fn watermark_run(&mut self, text: String, size: i32, opacity: i32, angle: i32, pages: String, color_index: i32) {
         let Some(pages) = self.pages_of(&pages) else { return };
         let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
         let (size, opacity, angle) = (size.clamp(8, 300) as f32, opacity.clamp(5, 100) as f32 / 100.0, angle as f32);
         self.edit("Filigrane ajouté (Ctrl+Z pour annuler).", move |pdf| {
-            annot::watermark(pdf, &pages, &text, size, (0.6, 0.6, 0.6), opacity, angle).map(|_| Some(keep))
+            annot::watermark(pdf, &pages, &text, size, color(WATERMARK[color_index.clamp(0, 4) as usize]), opacity, angle).map(|_| Some(keep))
         });
     }
 }

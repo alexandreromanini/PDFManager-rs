@@ -233,7 +233,11 @@ component Swatches inherits HorizontalLayout {
     in property <[color]> colors;
     in property <[string]> names;
     in property <int> current;
+    // pastille « Autre couleur… » après les autres (couleur personnalisée, si choisie)
+    in property <bool> more: false;
+    in property <color> custom: transparent;
     callback picked(int);
+    callback more-clicked();
     spacing: 8px;
     alignment: start;
     for c[i] in root.colors: Rectangle {
@@ -250,6 +254,20 @@ component Swatches inherits HorizontalLayout {
         accessible-action-default => { root.picked(i); }
         FocusRing { radius: 13px; activated => { root.picked(i); } }
         TouchArea { mouse-cursor: pointer; clicked => { root.picked(i); } }
+    }
+    if root.more: Rectangle {
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        background: root.custom == transparent ? Theme.layer : root.custom;
+        border-width: root.current == root.colors.length ? 3px : 1px;
+        border-color: root.current == root.colors.length ? Theme.accent : Theme.border-strong;
+        accessible-role: button;
+        accessible-label: "Autre couleur…";
+        accessible-action-default => { root.more-clicked(); }
+        if root.custom == transparent: Image { source: Icons.palette; width: 15px; colorize: Theme.icon; }
+        FocusRing { radius: 13px; activated => { root.more-clicked(); } }
+        TouchArea { mouse-cursor: pointer; clicked => { root.more-clicked(); } }
     }
 }
 
@@ -416,6 +434,10 @@ export component AppWindow inherits Window {
     in-out property <string> note-text;
     callback set-tool(string);
     callback pick-color(bool, int);
+    in property <color> custom-color: transparent;
+    in property <color> custom-text-color: transparent;
+    callback custom-color-set(bool, string);
+    property <bool> color-for-text;
     callback text-size-changed(int);
     callback set-author(string);
     callback page-double(int, length, length);
@@ -423,8 +445,9 @@ export component AppWindow inherits Window {
     callback comment-clicked(int);
     callback comment-edit(int);
     callback comment-delete(int);
-    callback header-run(string, string, string, string, string, string, int, int, string);
-    callback watermark-run(string, int, int, int, string);
+    callback header-run(string, string, string, string, string, string, int, int, string, int);
+    callback watermark-run(string, int, int, int, string, int);
+    property <int> watermark-color: 0;
 
     callback open();
     callback open-recent(string);
@@ -698,6 +721,9 @@ export component AppWindow inherits Window {
                             colors: [#FFD60A, #7BD389, #64B5F6, #F48FB1, #E53935, #1B1B1B];
                             names: ["Jaune", "Vert", "Bleu", "Rose", "Rouge", "Noir"];
                             current: root.color-index;
+                            more: true;
+                            custom: root.custom-color;
+                            more-clicked => { root.color-for-text = false; color-popup.show(); }
                             picked(i) => { root.pick-color(false, i); }
                         }
                         HorizontalLayout {
@@ -755,6 +781,9 @@ export component AppWindow inherits Window {
                             colors: [#000000, #E53935, #1E88E5, #43A047, #FB8C00, #8E24AA];
                             names: ["Noir", "Rouge", "Bleu", "Vert", "Orange", "Violet"];
                             current: root.text-color-index;
+                            more: true;
+                            custom: root.custom-text-color;
+                            more-clicked => { root.color-for-text = true; color-popup.show(); }
                             picked(i) => { root.pick-color(true, i); }
                         }
                         Section { text: "Pages"; height: 28px; vertical-alignment: center; }
@@ -1406,6 +1435,34 @@ export component AppWindow inherits Window {
         }
     }
 
+    color-popup := PopupWindow {
+        x: (root.width - 340px) / 2;
+        y: (root.height - 200px) / 2;
+        width: 340px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Autre couleur"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Code de la couleur, par exemple #2E7D32 (vert foncé) :"; color: Theme.text2; wrap: word-wrap; }
+                hex := LineEdit { placeholder-text: "#RRGGBB"; accepted(t) => { color-popup.close(); root.custom-color-set(root.color-for-text, t); } }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { color-popup.close(); } }
+                    Button { text: "OK"; primary: true; clicked => { color-popup.close(); root.custom-color-set(root.color-for-text, hex.text); } }
+                }
+            }
+        }
+    }
+
     // ----- menu ⋯ -----------------------------------------------------------------------------
     menu := PopupWindow {
         x: root.width - 312px;
@@ -1691,6 +1748,9 @@ export component AppWindow inherits Window {
                     Text { text: "Premier numéro"; color: Theme.text; vertical-alignment: center; }
                     h-start := SpinBox { minimum: 0; maximum: 9999; value: 1; width: 100px; }
                     Rectangle { width: 12px; }
+                    Text { text: "Marge (mm)"; color: Theme.text; vertical-alignment: center; }
+                    h-margin := SpinBox { minimum: 0; maximum: 60; value: 10; width: 90px; }
+                    Rectangle { width: 12px; }
                     Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
                     h-pages := LineEdit { placeholder-text: "toutes (ou 2-10)"; }
                 }
@@ -1704,7 +1764,7 @@ export component AppWindow inherits Window {
                         clicked => {
                             header-popup.close();
                             root.header-run(h-tl.text, h-tc.text, h-tr.text, h-bl.text, h-bc.text, h-br.text,
-                                            h-size.value, h-start.value, h-pages.text);
+                                            h-size.value, h-start.value, h-pages.text, h-margin.value);
                         }
                     }
                 }
@@ -1745,6 +1805,16 @@ export component AppWindow inherits Window {
                     }
                 }
                 HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Couleur"; color: Theme.text; vertical-alignment: center; }
+                    Swatches {
+                        colors: [#999999, #E53935, #1E88E5, #43A047, #000000];
+                        names: ["Gris", "Rouge", "Bleu", "Vert", "Noir"];
+                        current: root.watermark-color;
+                        picked(i) => { root.watermark-color = i; }
+                    }
+                }
+                HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { watermark-popup.close(); } }
@@ -1753,7 +1823,7 @@ export component AppWindow inherits Window {
                         primary: true;
                         clicked => {
                             watermark-popup.close();
-                            root.watermark-run(w-text.text, w-size.value, w-opacity.value, w-angle.value, w-pages.text);
+                            root.watermark-run(w-text.text, w-size.value, w-opacity.value, w-angle.value, w-pages.text, root.watermark-color);
                         }
                     }
                 }

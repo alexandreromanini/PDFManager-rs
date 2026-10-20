@@ -879,7 +879,8 @@ pub fn text_png(text: &str) -> Result<Vec<u8>, String> {
 
 /// Image (scan, photo) → PNG dont le fond clair devient transparent ; l'encre garde sa
 /// couleur, avec des bords adoucis. Réduite à 1000 px de large au plus.
-pub fn transparent_white(data: &[u8], threshold: u8) -> Result<Vec<u8>, String> {
+/// `threshold` : `None` garde le fond tel quel (image seulement recadrée et réduite).
+pub fn transparent_white(data: &[u8], threshold: Option<u8>) -> Result<Vec<u8>, String> {
     let img = mupdf::Image::from_bytes(data).map_err(|e| format!("Image illisible : {e}"))?;
     let mut pix = img.to_pixmap().map_err(err)?;
     while pix.width() > 1000 {
@@ -896,7 +897,11 @@ pub fn transparent_white(data: &[u8], threshold: u8) -> Result<Vec<u8>, String> 
             let (r, g, b) = if color == 1 { (px[0], px[0], px[0]) } else { (px[0], px[1], px[2]) };
             let gray = (r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000;
             // Plus clair que le seuil : transparent ; en dessous, opacité croissante.
-            let a = if gray > threshold as u32 { 0 } else { ((threshold as u32 - gray) * 255 / 100).min(255) };
+            let a = match threshold {
+                Some(t) if gray > t as u32 => 0,
+                Some(t) => ((t as u32 - gray) * 255 / 100).min(255),
+                None => 255,
+            };
             rgba.extend_from_slice(&[r, g, b, a as u8]);
         }
     }
@@ -1000,7 +1005,7 @@ mod tests {
         // Image à fond blanc (rendu d'une page) : le fond devient transparent.
         let page = Pdf::open(&fixture()).unwrap().render(0, 1.0, 0).unwrap();
         let png = crate::convert::encode(&page, false).unwrap();
-        let clear = transparent_white(&png, 200).unwrap();
+        let clear = transparent_white(&png, Some(200)).unwrap();
         assert!(is_transparent_png(&clear));
         let small = mupdf::Image::from_bytes(&clear).unwrap();
         assert!(small.width() < page.width, "recadré sur l'encre");

@@ -108,7 +108,19 @@ impl App {
 
     pub fn sig_import(&mut self) {
         let Some(path) = crate::dialogs::pick_file("Image de la signature", ("Images", &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"]), None) else { return };
-        match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| signature::transparent_white(&d, 200)) {
+        match std::fs::read(&path) {
+            Ok(raw) => {
+                self.sig_raw = Some(raw);
+                self.sig_whiten(self.ui().get_sig_whiten());
+            }
+            Err(e) => self.error(&format!("Lecture impossible : {e}")),
+        }
+    }
+
+    /// « Rendre le fond clair transparent » (image importée, un scan sur fond blanc).
+    pub fn sig_whiten(&mut self, whiten: bool) {
+        let Some(raw) = self.sig_raw.clone() else { return };
+        match signature::transparent_white(&raw, whiten.then_some(200)) {
             Ok(png) => {
                 self.ui().set_sig_preview(png_image(&png).unwrap_or_default());
                 self.sig_png = Some(png);
@@ -118,12 +130,21 @@ impl App {
     }
 
     /// Enregistre la signature (mode 0 : dessinée, 1 : tapée, 2 : importée).
-    pub fn sig_save(&mut self, mode: i32, w: f32, h: f32) {
+    /// `remember` : gardée dans la liste ; sinon placée aussitôt, sans être conservée.
+    pub fn sig_save(&mut self, mode: i32, w: f32, h: f32, remember: bool) {
         let png = match mode {
             0 => signature::strokes_png(&self.sig_strokes, w, h),
             _ => self.sig_png.clone().ok_or_else(|| "Créez d'abord la signature.".to_string()),
         };
         match png {
+            Ok(png) if !remember => {
+                if self.tab().is_none() {
+                    return self.toast("Ouvrez d'abord un document pour y placer la signature.");
+                }
+                self.pending_image = Some(png);
+                self.set_tool("image");
+                self.toast("Tracez l'emplacement de la signature (ou cliquez).");
+            }
             Ok(png) => {
                 let name = format!("signature-{}.png", chrono::Local::now().format("%Y%m%d-%H%M%S"));
                 if let Err(e) = crate::settings::write_atomic(&folder("signatures").join(name), &png) {

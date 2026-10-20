@@ -370,7 +370,9 @@ export component AppWindow inherits Window {
     callback sig-clear();
     callback sig-typed(string);
     callback sig-import();
-    callback sig-save(int, float, float);
+    callback sig-save(int, float, float, bool);
+    in-out property <bool> sig-whiten: true;
+    callback sig-whiten-changed(bool);
     callback sig-place(int);
     callback sig-delete(int);
     callback pick-pfx();
@@ -2199,13 +2201,23 @@ export component AppWindow inherits Window {
                     if sig-mode.current-index != 0: Image { x: 8px; y: 8px; width: parent.width - 16px; height: parent.height - 16px; source: root.sig-preview; image-fit: contain; }
                 }
                 if sig-mode.current-index == 1: LineEdit { placeholder-text: "Votre nom"; edited(t) => { root.sig-typed(t); } }
+                if sig-mode.current-index == 2: CheckBox {
+                    text: "Rendre le fond clair transparent";
+                    checked <=> root.sig-whiten;
+                    toggled => { root.sig-whiten-changed(self.checked); }
+                }
+                sig-remember := CheckBox { text: "Mémoriser cette signature"; checked: true; }
                 HorizontalLayout {
                     spacing: 8px;
                     if sig-mode.current-index == 0: Button { text: "Effacer"; clicked => { root.sig-clear(); } }
                     if sig-mode.current-index == 2: Button { text: "Choisir l'image…"; clicked => { root.sig-import(); } }
                     Rectangle { horizontal-stretch: 1; }
                     Button { text: "Annuler"; clicked => { sig-create-popup.close(); } }
-                    Button { text: "Enregistrer"; primary: true; clicked => { sig-create-popup.close(); root.sig-save(sig-mode.current-index, pad.width / 1px, pad.height / 1px); } }
+                    Button {
+                        text: sig-remember.checked ? "Enregistrer" : "Placer";
+                        primary: true;
+                        clicked => { sig-create-popup.close(); root.sig-save(sig-mode.current-index, pad.width / 1px, pad.height / 1px, sig-remember.checked); }
+                    }
                 }
             }
         }

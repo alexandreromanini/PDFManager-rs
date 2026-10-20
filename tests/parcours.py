@@ -551,6 +551,22 @@ def g_champs():
     check("F1 nom du champ saisi à la création", set(vals) == {"Nom", "Prénom"}, str(vals))
     check("F2 Tab passe au champ suivant (Dupont, puis Jean)", vals.get("Nom") == "Dupont" and vals.get("Prénom") == "Jean", str(vals))
 
+def g_signature_visuelle():
+    f = fresh("sigvis.pdf"); img = REPO + "/tests/fixtures/image.png"
+    data = os.path.join(W, "data")
+    before = len(os.listdir(os.path.join(data, "PDFManager-rs", "signatures"))) if os.path.isdir(os.path.join(data, "PDFManager-rs", "signatures")) else 0
+    log, code, dt = run([f], ["panel:6", "sig-import", "sig-whiten:0", "sig-save:2,0", "drag:0,100,600,300,700", "sleep:800",
+                              "action:save", "sleep:800"], picks=[img], answers=["oui"])
+    page = pymupdf.open(f)[0]
+    imgs = page.get_images(full=True)
+    sigdir = os.path.join(data, "PDFManager-rs", "signatures")
+    after = len(os.listdir(sigdir)) if os.path.isdir(sigdir) else 0
+    check("S1 signature importée, non mémorisée : placée sur la page, liste inchangée", len(imgs) == 1 and after == before,
+          f"{imgs} {before}->{after} {lines(log, 'ERREUR')}")
+    mask = pymupdf.Pixmap(page.parent, imgs[0][1]) if imgs and imgs[0][1] else None
+    check("S2 fond gardé (non transparent) : masque entièrement opaque", mask is None or min(mask.samples) == 255,
+          str(imgs) + (f" min={min(mask.samples)}" if mask else ""))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

@@ -54,6 +54,13 @@ pub fn with_app(f: impl FnOnce(&mut App) + 'static) {
     });
 }
 
+/// Action lancée par un bouton d'une fenêtre interne qui vient de se fermer : exécutée au
+/// tour suivant de la boucle, une fois le clic traité, pour qu'aucune boîte système (erreur,
+/// question, choix de fichier) ne s'ouvre pendant la fermeture de la fenêtre.
+fn after_popup(f: impl FnOnce(&mut App) + 'static) {
+    Timer::single_shot(Duration::ZERO, move || with_app(f));
+}
+
 /// Depuis le thread moteur : `f` s'exécutera dans le thread de l'interface.
 fn from_engine(f: impl FnOnce(&mut App) + Send + 'static) {
     let _ = slint::invoke_from_event_loop(move || with_app(f));
@@ -1252,47 +1259,47 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_present_step(|d| with_app(move |a| a.present_step(d)));
     ui.on_present_stop(|| with_app(|a| a.present_stop()));
     ui.on_quit(|| with_app(App::quit));
-    ui.on_password_entered(|pw| with_app(move |a| a.password_entered(pw.to_string())));
-    ui.on_password_cancelled(|| with_app(App::password_cancelled));
+    ui.on_password_entered(|pw| after_popup(move |a| a.password_entered(pw.to_string())));
+    ui.on_password_cancelled(|| after_popup(App::password_cancelled));
     ui.on_action(|a| with_app(move |app| app.action(a.as_str())));
     ui.on_set_tool(|t| with_app(move |app| app.set_tool(t.as_str())));
     ui.on_pick_color(|text, i| with_app(move |app| app.pick_color(text, i.clamp(0, 6) as usize)));
-    ui.on_custom_color_set(|text, hex| with_app(move |app| app.custom_color_set(text, &hex)));
+    ui.on_custom_color_set(|text, hex| after_popup(move |app| app.custom_color_set(text, &hex)));
     ui.on_text_size_changed(|s| with_app(move |app| app.text_size_changed(s)));
     ui.on_set_author(|a| with_app(move |app| app.set_author(a.to_string())));
     ui.on_page_double(|p, x, y| with_app(move |app| app.page_double(p.max(0) as usize, x, y)));
-    ui.on_note_done(|t| with_app(move |app| app.note_done(t.to_string())));
-    ui.on_choice_picked(|i| with_app(move |app| app.choice_picked(i.max(0) as usize)));
-    ui.on_protect_run(|open, open2, owner, owner2, print, copy, annotate, modify| with_app(move |app| {
+    ui.on_note_done(|t| after_popup(move |app| app.note_done(t.to_string())));
+    ui.on_choice_picked(|i| after_popup(move |app| app.choice_picked(i.max(0) as usize)));
+    ui.on_protect_run(|open, open2, owner, owner2, print, copy, annotate, modify| after_popup(move |app| {
         app.protect_run(open.into(), open2.into(), owner.into(), owner2.into(), [print, copy, annotate, modify])
     }));
-    ui.on_owner_entered(|pw| with_app(move |app| app.unprotect(Some(pw.to_string()))));
+    ui.on_owner_entered(|pw| after_popup(move |app| app.unprotect(Some(pw.to_string()))));
     ui.on_prop_edited(|i, t| with_app(move |app| app.prop_edited(i.max(0) as usize, t.to_string())));
-    ui.on_props_save(|| with_app(App::props_save));
-    ui.on_clean_run(|metadata, javascript, attachments, thumbnails, hidden_text, links, forms| with_app(move |app| {
+    ui.on_props_save(|| after_popup(App::props_save));
+    ui.on_clean_run(|metadata, javascript, attachments, thumbnails, hidden_text, links, forms| after_popup(move |app| {
         app.clean_run(crate::textedit::CleanOptions { metadata, javascript, attachments, thumbnails, hidden_text, links, forms })
     }));
-    ui.on_export_images_run(|jpg, dpi, pages| with_app(move |app| app.export_images_run(jpg, dpi, pages.to_string())));
-    ui.on_compress_run(|level| with_app(move |app| app.compress_run(level.max(0) as usize)));
+    ui.on_export_images_run(|jpg, dpi, pages| after_popup(move |app| app.export_images_run(jpg, dpi, pages.to_string())));
+    ui.on_compress_run(|level| after_popup(move |app| app.compress_run(level.max(0) as usize)));
     // Champs « Pages » des fenêtres : vérifiés avant de fermer, l'erreur s'affiche dedans
     // (une boîte système ouverte juste après la fermeture d'une fenêtre plantait sous Windows).
     ui.on_pages_error(|spec| APP.with(|c| {
         let count = c.try_borrow().ok().and_then(|a| a.as_ref().and_then(|a| a.current_tab().map(|t| t.sizes.len()))).unwrap_or(0);
         crate::edit::parse_ranges(&spec, count).err().unwrap_or_default().into()
     }));
-    ui.on_ocr_run(|lang, pages, all, dpi| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all, dpi)));
+    ui.on_ocr_run(|lang, pages, all, dpi| after_popup(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all, dpi)));
     ui.on_ai_ask(|q| with_app(move |app| app.ai_ask(q.to_string())));
     ui.on_chat_page(|p| with_app(move |app| app.go_to((p.max(1) - 1) as usize)));
     ui.on_sig_draw(|x, y, start| with_app(move |app| app.sig_draw(x, y, start)));
     ui.on_sig_clear(|| with_app(App::sig_clear));
     ui.on_sig_typed(|t| with_app(move |app| app.sig_typed(t.to_string())));
     ui.on_sig_import(|| with_app(App::sig_import));
-    ui.on_sig_save(|mode, w, h, remember| with_app(move |app| app.sig_save(mode, w, h, remember)));
+    ui.on_sig_save(|mode, w, h, remember| after_popup(move |app| app.sig_save(mode, w, h, remember)));
     ui.on_sig_whiten_changed(|on| with_app(move |app| app.sig_whiten(on)));
     ui.on_sig_place(|i| with_app(move |app| app.sig_place(i.max(0) as usize)));
     ui.on_sig_delete(|i| with_app(move |app| app.sig_delete(i.max(0) as usize)));
     ui.on_pick_pfx(|| with_app(App::pick_pfx));
-    ui.on_digital_run(|pfx, pw, reason, location, tsa, url, image| with_app(move |app| {
+    ui.on_digital_run(|pfx, pw, reason, location, tsa, url, image| after_popup(move |app| {
         app.digital_run(pfx.into(), pw.into(), reason.into(), location.into(), tsa, url.into(), image.max(0) as usize)
     }));
     ui.on_sig_trust(|i| with_app(move |app| app.sig_trust(i.max(0) as usize)));
@@ -1310,18 +1317,18 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_comment_clicked(|i| with_app(move |app| app.comment_clicked(i.max(0) as usize)));
     ui.on_comment_edit(|i| with_app(move |app| app.comment_edit(i.max(0) as usize)));
     ui.on_comment_delete(|i| with_app(move |app| app.comment_delete(i.max(0) as usize)));
-    ui.on_header_run(|tl, tc, tr, bl, bc, br, size, start, pages, margin| with_app(move |app| {
+    ui.on_header_run(|tl, tc, tr, bl, bc, br, size, start, pages, margin| after_popup(move |app| {
         app.header_run([tl, tc, tr, bl, bc, br].map(|s| s.to_string()), size, start, pages.to_string(), margin)
     }));
-    ui.on_watermark_run(|text, size, opacity, angle, pages, color| with_app(move |app| {
+    ui.on_watermark_run(|text, size, opacity, angle, pages, color| after_popup(move |app| {
         app.watermark_run(text.to_string(), size, opacity, angle, pages.to_string(), color)
     }));
     ui.on_set_panel(|p| with_app(move |app| app.set_panel(p)));
     ui.on_thumb_press(|i, ctrl, shift| with_app(move |app| app.thumb_press(i.max(0) as usize, ctrl, shift)));
     ui.on_thumb_drag(|i, y, h| with_app(move |app| app.thumb_drag(i.max(0) as usize, y, h)));
     ui.on_thumb_release(|| with_app(App::thumb_release));
-    ui.on_merge_command(|c| with_app(move |app| app.merge_command(c.as_str())));
-    ui.on_split_run(|mode, n, ranges| with_app(move |app| app.split_run(mode, n.max(1) as usize, ranges.to_string())));
+    ui.on_merge_command(|c| after_popup(move |app| app.merge_command(c.as_str())));
+    ui.on_split_run(|mode, n, ranges| after_popup(move |app| app.split_run(mode, n.max(1) as usize, ranges.to_string())));
     ui.window().on_close_requested(|| {
         // Modifications non enregistrées : on demande d'abord (la fenêtre reste ouverte).
         let unsaved = APP.with(|c| c.try_borrow().map(|a| a.as_ref().is_some_and(App::has_unsaved)).unwrap_or(true));

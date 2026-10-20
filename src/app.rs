@@ -1168,7 +1168,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_clean_run(|m, j, a, t| with_app(move |app| app.clean_run(m, j, a, t)));
     ui.on_export_images_run(|jpg, dpi, pages| with_app(move |app| app.export_images_run(jpg, dpi, pages.to_string())));
     ui.on_compress_run(|level| with_app(move |app| app.compress_run(level.max(0) as usize)));
-    ui.on_ocr_run(|lang, pages, all| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all)));
+    ui.on_ocr_run(|lang, pages, all, dpi| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all, dpi)));
     ui.on_ai_ask(|q| with_app(move |app| app.ai_ask(q.to_string())));
     ui.on_chat_page(|p| with_app(move |app| app.go_to((p.max(1) - 1) as usize)));
     ui.on_sig_draw(|x, y, start| with_app(move |app| app.sig_draw(x, y, start)));

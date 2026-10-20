@@ -69,6 +69,9 @@ fn selftest(path: Option<&String>) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--ocr-worker") {
+        return ocr::worker_main(&args[1..]);
+    }
     if args.first().map(String::as_str) == Some("--selftest") {
         return selftest(args.get(1));
     }

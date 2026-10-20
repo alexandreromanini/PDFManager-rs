@@ -109,9 +109,32 @@ pub fn choose(title: &str, text: &str, buttons: [&str; 3]) -> usize {
     let answer = rfd::MessageDialog::new().set_title(title).set_description(text)
         .set_buttons(rfd::MessageButtons::YesNoCancelCustom(buttons[0].into(), buttons[1].into(), buttons[2].into()))
         .show();
+    button_index(answer, &buttons)
+}
+
+/// Sous Windows (sans « common-controls-v6 »), rfd ignore les libellés : la boîte affiche
+/// Oui / Non / Annuler et répond Yes / No / Cancel, et non `Custom`.
+fn button_index(answer: rfd::MessageDialogResult, buttons: &[&str; 3]) -> usize {
     match answer {
         rfd::MessageDialogResult::Custom(c) => buttons.iter().position(|b| *b == c).unwrap_or(2),
+        rfd::MessageDialogResult::Yes | rfd::MessageDialogResult::Ok => 0,
+        rfd::MessageDialogResult::No => 1,
         _ => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rfd::MessageDialogResult as R;
+
+    #[test]
+    fn reponses_oui_non_annuler() {
+        let b = ["Enregistrer", "Ne pas enregistrer", "Annuler"];
+        assert_eq!(button_index(R::Yes, &b), 0);
+        assert_eq!(button_index(R::No, &b), 1);
+        assert_eq!(button_index(R::Cancel, &b), 2);
+        assert_eq!(button_index(R::Custom("Ne pas enregistrer".into()), &b), 1);
     }
 }
 

@@ -119,7 +119,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             }
             "props-save" => app::with_app(|a| a.props_save()),
             "clean" => app::with_app(|a| a.clean_run(true, true, true, true)),
-            "ocr" => app::with_app(move |a| a.ocr_run(0, arg, false)),
+            "ocr" => app::with_app(move |a| a.ocr_run(0, arg, false, 300)),
             "export-images" => app::with_app(move |a| a.export_images_run(false, 72, arg)),
             "compress" => app::with_app(move |a| a.compress_run(arg.parse().unwrap_or(0))),
             // digital:fichier.pfx,mot de passe

@@ -362,7 +362,7 @@ export component AppWindow inherits Window {
     in property <[ChatMessage]> chat;
     callback export-images-run(bool, int, string);
     callback compress-run(int);
-    callback ocr-run(int, string, bool);
+    callback ocr-run(int, string, bool, int);
     callback ai-ask(string);
     callback chat-page(int);
     callback clean-run(bool, bool, bool, bool);
@@ -1923,13 +1923,17 @@ export component AppWindow inherits Window {
                         Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
                         o-pages := LineEdit { placeholder-text: "toutes (ou 1-5)"; }
                     }
+                    Row {
+                        Text { text: "Résolution d'analyse (dpi)"; color: Theme.text; vertical-alignment: center; }
+                        o-dpi := SpinBox { minimum: 150; maximum: 600; step-size: 50; value: 300; }
+                    }
                 }
                 o-all := CheckBox { text: "Aussi les pages qui contiennent déjà du texte"; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { ocr-popup.close(); } }
-                    Button { text: "Reconnaître"; primary: true; clicked => { ocr-popup.close(); root.ocr-run(o-lang.current-index, o-pages.text, o-all.checked); } }
+                    Button { text: "Reconnaître"; primary: true; clicked => { ocr-popup.close(); root.ocr-run(o-lang.current-index, o-pages.text, o-all.checked, o-dpi.value); } }
                 }
             }
         }

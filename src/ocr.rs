@@ -70,6 +70,104 @@ pub fn recognize(gray: &[u8], w: u32, h: u32, dpi: f32, language: &str) -> Resul
         .collect())
 }
 
+// ----- reconnaissance dans des processus séparés ----------------------------------------------
+//
+// La liaison Tesseract de MuPDF refuse deux fils à la fois (« Attempt to use Leptonica from 2
+// threads ») : comme la version Python, la reconnaissance parallèle passe par des processus,
+// l'application relancée avec `--ocr-worker langue dpi`. Protocole sur l'entrée / la sortie
+// standard : « largeur hauteur » puis les pixels gris ; en retour une ligne par mot
+// « x0 y0 x1 y1<TAB>mot », puis « FIN » (ou « ERREUR message »).
+
+/// Boucle du processus de reconnaissance (jusqu'à la fermeture de son entrée).
+pub fn worker_main(args: &[String]) -> std::process::ExitCode {
+    use std::io::{BufRead, Read, Write};
+    let language = args.first().cloned().unwrap_or_else(|| "fra+eng".into());
+    let dpi: f32 = args.get(1).and_then(|d| d.parse().ok()).unwrap_or(300.0);
+    let (stdin, stdout) = (std::io::stdin(), std::io::stdout());
+    let (mut input, mut output) = (stdin.lock(), std::io::BufWriter::new(stdout.lock()));
+    let mut header = String::new();
+    loop {
+        header.clear();
+        if input.read_line(&mut header).unwrap_or(0) == 0 {
+            return std::process::ExitCode::SUCCESS;
+        }
+        let mut it = header.split_whitespace().filter_map(|n| n.parse::<u32>().ok());
+        let (Some(w), Some(h)) = (it.next(), it.next()) else { return std::process::ExitCode::FAILURE };
+        let mut gray = vec![0u8; w as usize * h as usize];
+        if input.read_exact(&mut gray).is_err() {
+            return std::process::ExitCode::FAILURE;
+        }
+        match recognize(&gray, w, h, dpi, &language) {
+            Ok(words) => {
+                for (r, t) in words {
+                    let t = t.replace(['\t', '\n', '\r'], " ");
+                    let _ = writeln!(output, "{} {} {} {}\t{t}", r.x0, r.y0, r.x1, r.y1);
+                }
+                let _ = writeln!(output, "FIN");
+            }
+            Err(e) => {
+                let _ = writeln!(output, "ERREUR {}", e.replace('\n', " "));
+            }
+        }
+        if output.flush().is_err() {
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+}
+
+/// Un processus de reconnaissance, gardé pour plusieurs pages (le modèle n'est chargé qu'une fois).
+pub struct Worker {
+    child: std::process::Child,
+    input: std::process::ChildStdin,
+    output: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl Worker {
+    pub fn spawn(language: &str, dpi: f32) -> Result<Worker, String> {
+        use std::process::{Command, Stdio};
+        let exe = std::env::current_exe().map_err(err)?;
+        let mut child = Command::new(exe).arg("--ocr-worker").arg(language).arg((dpi as i32).to_string())
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(err)?;
+        let input = child.stdin.take().ok_or("entrée du processus")?;
+        let output = std::io::BufReader::new(child.stdout.take().ok_or("sortie du processus")?);
+        Ok(Worker { child, input, output })
+    }
+
+    /// Comme `recognize`, dans le processus.
+    pub fn recognize(&mut self, gray: &[u8], w: u32, h: u32) -> Result<Vec<(Rect, String)>, String> {
+        use std::io::{BufRead, Write};
+        writeln!(self.input, "{w} {h}").and_then(|_| self.input.write_all(gray)).and_then(|_| self.input.flush())
+            .map_err(|e| format!("processus de reconnaissance : {e}"))?;
+        let mut words = vec![];
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if self.output.read_line(&mut line).map_err(err)? == 0 {
+                return Err("le processus de reconnaissance s'est arrêté".into());
+            }
+            let line = line.trim_end_matches(['\n', '\r']);
+            if line == "FIN" {
+                return Ok(words);
+            }
+            if let Some(e) = line.strip_prefix("ERREUR ") {
+                return Err(e.to_string());
+            }
+            let Some((coords, text)) = line.split_once('\t') else { continue };
+            let v: Vec<f32> = coords.split(' ').filter_map(|n| n.parse().ok()).collect();
+            if v.len() == 4 {
+                words.push((Rect::new(v[0], v[1], v[2], v[3]), text.to_string()));
+            }
+        }
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let _ = self.child.kill(); // fermé ou non, le processus ne doit pas survivre
+        let _ = self.child.wait();
+    }
+}
+
 /// Littéral PDF en WinAnsi (hors latin : « ? »).
 pub fn literal(word: &str) -> Vec<u8> {
     const EXTRA: [(char, u8); 27] = [

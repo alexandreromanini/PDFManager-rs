@@ -207,7 +207,9 @@ impl App {
 
     // ----- OCR -----------------------------------------------------------------------------
 
-    pub fn ocr_run(&mut self, language: usize, pages: String, all: bool) {
+    /// Reconnaissance du texte : pages rendues l'une après l'autre dans le fil moteur, puis
+    /// reconnues en parallèle (jusqu'à 6 à la fois, comme la version Python).
+    pub fn ocr_run(&mut self, language: usize, pages: String, all: bool, dpi: i32) {
         let Some((id, _, _)) = self.doc_stem() else { return };
         let count = self.tab().map_or(0, |t| t.sizes.len());
         let pages = match edit::parse_pages(&pages, count) {
@@ -215,6 +217,7 @@ impl App {
             Err(e) => return self.error(&e),
         };
         let lang = ocr::LANGUAGES[language.min(2)].0;
+        let dpi = dpi.clamp(150, 600) as f32;
         let cancel = Arc::new(AtomicBool::new(false));
         self.ocr_cancel = Some(cancel.clone());
         let engine = self.engine.clone();
@@ -222,29 +225,83 @@ impl App {
             let Some(pdf) = docs.get(&id) else { return };
             let todo = ocr::pages_to_process(pdf, &pages, all);
             std::thread::spawn(move || {
-                const DPI: f32 = 300.0;
                 const CLOSED: &str = "document fermé";
                 let n = todo.len();
-                let mut results = vec![];
-                for (k, &page) in todo.iter().enumerate() {
-                    if cancel.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    from_engine(move |app| app.toast(&format!("Reconnaissance du texte : page {} sur {n}… (Échap pour arrêter)", k + 1)));
-                    // Rendu dans le thread moteur (le document y vit), reconnaissance ici.
-                    let (tx, rx) = channel();
-                    engine.run(move |docs| {
-                        let _ = tx.send(docs.get(&id).ok_or(CLOSED.to_string()).and_then(|p| ocr::render(p, page, DPI)));
+                let workers = std::thread::available_parallelism().map_or(2, |c| c.get()).saturating_sub(1).clamp(1, 6).min(n.max(1));
+                // pages rendues → fils de reconnaissance (file bornée : peu d'images en mémoire)
+                let (job_tx, job_rx) = std::sync::mpsc::sync_channel::<(usize, Vec<u8>, u32, u32)>(workers);
+                let job_rx = Arc::new(std::sync::Mutex::new(job_rx));
+                let (res_tx, res_rx) = channel::<(usize, Result<Vec<(crate::pdf::Rect, String)>, String>)>();
+                for _ in 0..workers {
+                    let (job_rx, res_tx, cancel) = (job_rx.clone(), res_tx.clone(), cancel.clone());
+                    std::thread::spawn(move || {
+                        // un processus par fil (Tesseract refuse plusieurs fils dans un processus)
+                        let mut worker = ocr::Worker::spawn(lang, dpi);
+                        loop {
+                            let job = job_rx.lock().map(|rx| rx.recv());
+                            let Ok(Ok((page, gray, w, h))) = job else { break };
+                            if cancel.load(Ordering::Relaxed) {
+                                continue;
+                            }
+                            let words = match worker.as_mut() {
+                                Ok(p) => p.recognize(&gray, w, h),
+                                Err(e) => Err(e.clone()),
+                            };
+                            if res_tx.send((page, words.map(|w| ocr::to_points(w, dpi)))).is_err() {
+                                break;
+                            }
+                        }
                     });
-                    let result = rx.recv().unwrap_or(Err("moteur arrêté".into()))
-                        .and_then(|(gray, w, h)| ocr::recognize(&gray, w, h, DPI, lang));
-                    match result {
-                        Ok(words) => results.push((page, ocr::to_points(words, DPI))),
-                        // Document fermé entre-temps : on s'arrête sans rien signaler.
-                        Err(e) if e == CLOSED => return from_engine(|app| app.ocr_cancel = None),
-                        Err(e) => return from_engine(move |app| app.error(&format!("Reconnaissance impossible : {e}"))),
+                }
+                drop(res_tx);
+                let feeder_cancel = cancel.clone();
+                let feeder = std::thread::spawn(move || -> Result<(), String> {
+                    for &page in &todo {
+                        if feeder_cancel.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let (tx, rx) = channel();
+                        engine.run(move |docs| {
+                            let _ = tx.send(docs.get(&id).ok_or(CLOSED.to_string()).and_then(|p| ocr::render(p, page, dpi)));
+                        });
+                        let (gray, w, h) = rx.recv().unwrap_or(Err("moteur arrêté".into()))?;
+                        if job_tx.send((page, gray, w, h)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(())
+                });
+                let mut results = vec![];
+                let mut failure = None;
+                for (page, words) in res_rx {
+                    match words {
+                        Ok(words) => {
+                            results.push((page, words));
+                            let k = results.len();
+                            from_engine(move |app| app.toast(&format!("Reconnaissance du texte : {k} page{} sur {n}… (Échap pour arrêter)",
+                                                                      if k > 1 { "s" } else { "" })));
+                        }
+                        Err(e) => {
+                            cancel.store(true, Ordering::Relaxed);
+                            failure.get_or_insert(e);
+                        }
                     }
                 }
+                match feeder.join().unwrap_or(Err("rendu interrompu".into())) {
+                    // Document fermé entre-temps : on s'arrête sans rien signaler.
+                    Err(e) if e == CLOSED => return from_engine(|app| app.ocr_cancel = None),
+                    Err(e) => {
+                        failure.get_or_insert(e);
+                    }
+                    Ok(()) => {}
+                }
+                if let Some(e) = failure {
+                    return from_engine(move |app| {
+                        app.ocr_cancel = None;
+                        app.error(&format!("Reconnaissance impossible : {e}"));
+                    });
+                }
+                results.sort_by_key(|r| r.0);
                 let stopped = cancel.load(Ordering::Relaxed);
                 from_engine(move |app| {
                     app.ocr_cancel = None;

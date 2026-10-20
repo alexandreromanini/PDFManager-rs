@@ -466,6 +466,20 @@ impl App {
         let _ = open::that(crate::settings::data_dir());
     }
 
+    /// Recherche d'outil : minuscules sans accents, chaque mot cherché dans le libellé et
+    /// quelques mots-clés (« proteger » trouve « Protéger »).
+    pub fn tool_search(&mut self, query: &str) {
+        let hits: Vec<bool> = CATALOG.iter().map(|(_, label, keys)| {
+            let hay = fold(&format!("{label} {keys}"));
+            fold(query).split_whitespace().all(|w| hay.contains(w))
+        }).collect();
+        let sections: Vec<bool> = SECTIONS.iter().map(|s| CATALOG.iter().zip(&hits).any(|(c, h)| *h && c.0 == *s)).collect();
+        let ui = self.ui();
+        ui.set_tool_none(!hits.iter().any(|h| *h));
+        ui.set_tool_hits(slint::ModelRc::new(slint::VecModel::from(hits)));
+        ui.set_section_hits(slint::ModelRc::new(slint::VecModel::from(sections)));
+    }
+
     pub fn clear_recent(&mut self) {
         self.settings.recent.clear();
         self.settings.save();
@@ -492,5 +506,56 @@ impl App {
         eprintln!("ETAT : accueil={} outil=« {} » panneau={} rail={} signatures={} différences={} comm.rail={}",
                   on_home, self.tool, ui.get_panel(), ui.get_rail_tab(), slint::Model::row_count(&ui.get_sigs()),
                   slint::Model::row_count(&ui.get_diffs()), slint::Model::row_count(&ui.get_comments()));
+    }
+}
+
+const SECTIONS: [&str; 5] = ["Organiser", "Modifier", "Convertir et optimiser", "Signer et protéger", "Assistant IA"];
+
+/// Catalogue d'outils, dans l'ordre de l'interface : (section, libellé, mots-clés).
+const CATALOG: [(&str, &str, &str); 15] = [
+    ("Organiser", "Organiser les pages", "pivoter supprimer extraire inserer recadrer deplacer page vierge"),
+    ("Organiser", "Fusionner des PDF", "combiner assembler rassembler"),
+    ("Organiser", "Scinder un PDF", "separer decouper diviser"),
+    ("Modifier", "Ajouter du texte et des images", "modifier corriger texte image lien caviarder filigrane en-tete pied numerotation nettoyer"),
+    ("Modifier", "Commenter", "annotation surligner souligner barrer note dessin tampon forme"),
+    ("Modifier", "Formulaires", "champ case liste remplir"),
+    ("Convertir et optimiser", "Reconnaître le texte (OCR)", "scan numerise ocr"),
+    ("Convertir et optimiser", "Réduire la taille", "compresser alleger poids"),
+    ("Convertir et optimiser", "Convertir (Word, images, texte)", "exporter word docx png jpeg txt creer office"),
+    ("Convertir et optimiser", "Comparer deux PDF", "differences versions"),
+    ("Convertir et optimiser", "Archiver (PDF/A)", "pdfa archivage"),
+    ("Signer et protéger", "Signer", "signature certificat numerique manuscrite verifier"),
+    ("Signer et protéger", "Protéger par mot de passe", "chiffrer securite permissions"),
+    ("Signer et protéger", "Retirer la protection", "dechiffrer mot de passe"),
+    ("Assistant IA", "Résumer, poser des questions", "ia intelligence artificielle resume assistant"),
+];
+
+/// Minuscules sans accents (recherche d'outil).
+fn fold(s: &str) -> String {
+    s.to_lowercase().chars().map(|c| match c {
+        'à' | 'â' | 'ä' => 'a',
+        'é' | 'è' | 'ê' | 'ë' => 'e',
+        'î' | 'ï' => 'i',
+        'ô' | 'ö' => 'o',
+        'ù' | 'û' | 'ü' => 'u',
+        'ç' => 'c',
+        c => c,
+    }).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recherche_d_outil() {
+        let find = |q: &str| CATALOG.iter().filter(|(_, l, k)| {
+            let hay = fold(&format!("{l} {k}"));
+            fold(q).split_whitespace().all(|w| hay.contains(w))
+        }).map(|c| c.1).collect::<Vec<_>>();
+        assert_eq!(find("proteger"), ["Protéger par mot de passe"]);
+        assert_eq!(find("COMPRESSER"), ["Réduire la taille"]);
+        assert_eq!(find("mot de passe").len(), 2);
+        assert!(find("zzz").is_empty());
     }
 }

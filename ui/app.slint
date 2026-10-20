@@ -393,6 +393,11 @@ export component AppWindow inherits Window {
     in property <string> undo-label;
     in property <string> redo-label;
     callback external-tools();
+    // recherche d'outil (catalogue) : lignes et sections affichées
+    in property <[bool]> tool-hits: [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+    in property <[bool]> section-hits: [true, true, true, true, true];
+    in property <bool> tool-none;
+    callback tool-search(string);
     callback open-log-dir();
     callback clear-recent();
     callback present-step(int);
@@ -624,26 +629,31 @@ export component AppWindow inherits Window {
                     padding-top: 6px;
                     spacing: 2px;
                     alignment: start;
-                    Section { text: root.compact-tools ? "" : "Organiser"; height: root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Organiser"; icon: Icons.organize; text: "Organiser les pages"; enabled: root.tabs.length > 0; clicked => { root.set-panel(1); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Fusionner"; icon: Icons.combine; text: "Fusionner des PDF"; clicked => { root.action("merge"); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Scinder"; icon: Icons.scissors; text: "Scinder un PDF"; enabled: root.tabs.length > 0; clicked => { root.action("split"); } }
-                    Section { text: root.compact-tools ? "" : "Modifier"; height: root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Modifier"; icon: Icons.edit; text: "Ajouter du texte et des images"; enabled: root.tabs.length > 0; clicked => { root.set-panel(3); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Commenter"; icon: Icons.note; text: "Commenter"; enabled: root.tabs.length > 0; clicked => { root.set-panel(2); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Formulaires"; icon: Icons.field; text: "Formulaires"; enabled: root.tabs.length > 0; clicked => { root.set-panel(4); } }
-                    Section { text: root.compact-tools ? "" : "Convertir et optimiser"; height: root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "OCR"; icon: Icons.ocr; text: "Reconnaître le texte (OCR)"; enabled: root.tabs.length > 0; clicked => { root.action("ocr"); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Réduire"; icon: Icons.shrink; text: "Réduire la taille"; enabled: root.tabs.length > 0; clicked => { root.action("compress"); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Convertir"; icon: Icons.convert; text: "Convertir (Word, images, texte)"; clicked => { root.set-panel(5); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Comparer"; icon: Icons.compare; text: "Comparer deux PDF"; enabled: root.tabs.length > 0; clicked => { root.action("compare"); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "PDF/A"; icon: Icons.archive; text: "Archiver (PDF/A)"; enabled: root.tabs.length > 0; clicked => { root.action("pdfa"); } }
-                    Section { text: root.compact-tools ? "" : "Signer et protéger"; height: root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Signer"; icon: Icons.signature; text: "Signer"; enabled: root.tabs.length > 0; clicked => { root.set-panel(6); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Protéger"; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Déprotéger"; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
-                    Section { text: root.compact-tools ? "" : "Assistant IA"; height: root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { tile: true; compact: root.compact-tools; short: "Assistant"; icon: Icons.bot; text: "Résumer, poser des questions"; clicked => { root.show-assistant(); } }
+                    if !root.compact-tools: LineEdit {
+                        placeholder-text: "Rechercher un outil";
+                        edited(t) => { root.tool-search(t); }
+                    }
+                    if root.tool-none: Text { text: "Aucun outil ne correspond."; color: Theme.text2; }
+                    Section { visible: root.section-hits[0]; text: root.compact-tools ? "" : "Organiser"; height: !root.section-hits[0] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
+                    ToolRow { visible: root.tool-hits[0]; height: !root.tool-hits[0] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Organiser"; icon: Icons.organize; text: "Organiser les pages"; enabled: root.tabs.length > 0; clicked => { root.set-panel(1); } }
+                    ToolRow { visible: root.tool-hits[1]; height: !root.tool-hits[1] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Fusionner"; icon: Icons.combine; text: "Fusionner des PDF"; clicked => { root.action("merge"); } }
+                    ToolRow { visible: root.tool-hits[2]; height: !root.tool-hits[2] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Scinder"; icon: Icons.scissors; text: "Scinder un PDF"; enabled: root.tabs.length > 0; clicked => { root.action("split"); } }
+                    Section { visible: root.section-hits[1]; text: root.compact-tools ? "" : "Modifier"; height: !root.section-hits[1] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
+                    ToolRow { visible: root.tool-hits[3]; height: !root.tool-hits[3] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Modifier"; icon: Icons.edit; text: "Ajouter du texte et des images"; enabled: root.tabs.length > 0; clicked => { root.set-panel(3); } }
+                    ToolRow { visible: root.tool-hits[4]; height: !root.tool-hits[4] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Commenter"; icon: Icons.note; text: "Commenter"; enabled: root.tabs.length > 0; clicked => { root.set-panel(2); } }
+                    ToolRow { visible: root.tool-hits[5]; height: !root.tool-hits[5] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Formulaires"; icon: Icons.field; text: "Formulaires"; enabled: root.tabs.length > 0; clicked => { root.set-panel(4); } }
+                    Section { visible: root.section-hits[2]; text: root.compact-tools ? "" : "Convertir et optimiser"; height: !root.section-hits[2] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
+                    ToolRow { visible: root.tool-hits[6]; height: !root.tool-hits[6] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "OCR"; icon: Icons.ocr; text: "Reconnaître le texte (OCR)"; enabled: root.tabs.length > 0; clicked => { root.action("ocr"); } }
+                    ToolRow { visible: root.tool-hits[7]; height: !root.tool-hits[7] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Réduire"; icon: Icons.shrink; text: "Réduire la taille"; enabled: root.tabs.length > 0; clicked => { root.action("compress"); } }
+                    ToolRow { visible: root.tool-hits[8]; height: !root.tool-hits[8] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Convertir"; icon: Icons.convert; text: "Convertir (Word, images, texte)"; clicked => { root.set-panel(5); } }
+                    ToolRow { visible: root.tool-hits[9]; height: !root.tool-hits[9] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Comparer"; icon: Icons.compare; text: "Comparer deux PDF"; enabled: root.tabs.length > 0; clicked => { root.action("compare"); } }
+                    ToolRow { visible: root.tool-hits[10]; height: !root.tool-hits[10] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "PDF/A"; icon: Icons.archive; text: "Archiver (PDF/A)"; enabled: root.tabs.length > 0; clicked => { root.action("pdfa"); } }
+                    Section { visible: root.section-hits[3]; text: root.compact-tools ? "" : "Signer et protéger"; height: !root.section-hits[3] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
+                    ToolRow { visible: root.tool-hits[11]; height: !root.tool-hits[11] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Signer"; icon: Icons.signature; text: "Signer"; enabled: root.tabs.length > 0; clicked => { root.set-panel(6); } }
+                    ToolRow { visible: root.tool-hits[12]; height: !root.tool-hits[12] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Protéger"; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
+                    ToolRow { visible: root.tool-hits[13]; height: !root.tool-hits[13] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Déprotéger"; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
+                    Section { visible: root.section-hits[4]; text: root.compact-tools ? "" : "Assistant IA"; height: !root.section-hits[4] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
+                    ToolRow { visible: root.tool-hits[14]; height: !root.tool-hits[14] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Assistant"; icon: Icons.bot; text: "Résumer, poser des questions"; clicked => { root.show-assistant(); } }
                     Rectangle { height: 12px; }
                     Rectangle { height: 4px; }
                     }

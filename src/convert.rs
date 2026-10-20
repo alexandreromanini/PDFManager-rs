@@ -282,9 +282,40 @@ pub fn office_to_pdf(source: &Path, soffice: &Path) -> Result<Vec<u8>, String> {
         .map_err(|_| format!("LibreOffice n'a pas produit de PDF pour « {} ».", source.display()))
 }
 
-/// PDF/A-2b par Ghostscript (polices intégrées, couleurs en RVB). Renvoie le PDF et ses
-/// remarques (ex. éléments retirés). ponytail : la conformité est celle que garantit
-/// Ghostscript ; pas de second contrôle (la version Python validait avec pikepdf).
+/// Profil sRGB de l'OutputIntent PDF/A : celui de pikepdf (version Python), produit par
+/// lcms, « no copyright, use freely ».
+const SRGB_ICC: &[u8] = include_bytes!("../resources/sRGB.icc");
+
+/// Déclare l'espace colorimétrique de sortie (sRGB), exigé par PDF/A dès que la page
+/// emploie des couleurs « device » : Ghostscript ne l'ajoute pas sans fichier de
+/// définition. Enregistrement par ajout : le fichier de Ghostscript reste intact.
+fn add_output_intent(path: &Path) -> Result<(), String> {
+    let p = path.to_str().ok_or("chemin illisible")?;
+    let mut doc = PdfDocument::open(p).map_err(err)?;
+    let mut root = doc.catalog().map_err(err)?;
+    if root.get_dict("OutputIntents").map_err(err)?.is_some() {
+        return Ok(());
+    }
+    let mut info = doc.new_dict().map_err(err)?;
+    info.dict_put("N", doc.new_int(3).map_err(err)?).map_err(err)?;
+    let profile = doc.add_stream(&mupdf::Buffer::from_bytes(SRGB_ICC).map_err(err)?, Some(&info), false).map_err(err)?;
+    let mut intent = doc.new_dict().map_err(err)?;
+    intent.dict_put("Type", doc.new_name("OutputIntent").map_err(err)?).map_err(err)?;
+    intent.dict_put("S", doc.new_name("GTS_PDFA1").map_err(err)?).map_err(err)?;
+    intent.dict_put("OutputConditionIdentifier", doc.new_string("sRGB").map_err(err)?).map_err(err)?;
+    intent.dict_put("Info", doc.new_string("sRGB IEC61966-2.1").map_err(err)?).map_err(err)?;
+    intent.dict_put("DestOutputProfile", profile).map_err(err)?;
+    let intent = doc.add_object(&intent).map_err(err)?;
+    let mut list = doc.new_array().map_err(err)?;
+    list.array_push(intent).map_err(err)?;
+    root.dict_put("OutputIntents", list).map_err(err)?;
+    let mut opts = PdfWriteOptions::default();
+    opts.set_incremental(true);
+    doc.save_with_options(p, opts).map_err(err)
+}
+
+/// PDF/A-2b par Ghostscript (polices intégrées, couleurs en RVB), complété de son
+/// OutputIntent sRGB. Renvoie le PDF et ses remarques (ex. éléments retirés).
 pub fn to_pdfa(data: &[u8], gs: &Path) -> Result<(Vec<u8>, Vec<String>), String> {
     let work = Work::new()?;
     let (src, dst) = (work.0.join("in.pdf"), work.0.join("out.pdf"));
@@ -294,6 +325,7 @@ pub fn to_pdfa(data: &[u8], gs: &Path) -> Result<(Vec<u8>, Vec<String>), String>
                         "-dPDFACompatibilityPolicy=1".into(), format!("-sOutputFile={}", dst.display()),
                         src.to_string_lossy().into_owned()], Duration::from_secs(600))?;
     let notes = out.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
+    add_output_intent(&dst)?;
     Ok((std::fs::read(&dst).map_err(err)?, notes))
 }
 

@@ -575,6 +575,14 @@ def g_repare():
     log, code, dt = run([fresh("propre.pdf")], ["etat"])
     check("D2 fichier sain : pas de message de réparation", not any("endommagé" in x for x in lines(log, "NOTE")), str(lines(log, "NOTE")))
 
+def g_depot():
+    f = fresh("depot.pdf"); g = fresh("ajout.pdf"); img = REPO + "/tests/fixtures/image.png"
+    log, code, dt = run([f], ["panel:1", "thumb:0", f"drop:{g}", "sleep:800", f"drop:{img}", "sleep:800", "etat"])
+    e = [x for x in etat(log) if x.startswith("onglet")]
+    check("G1 Organiser : PDF et image déposés insérés (3 + 3 + 1 pages, un seul onglet)", len(e) == 1 and "pages=7" in e[0], str(e) + str(lines(log, "ERREUR")))
+    log, code, dt = run([f], [f"drop:{img}", "etat"])
+    check("G2 hors Organiser : image déposée, consigne affichée", any("Organiser les pages" in x for x in lines(log, "NOTE")), str(lines(log, "NOTE")))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

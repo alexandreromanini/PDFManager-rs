@@ -89,8 +89,9 @@ pub const LEVELS: [(&str, &str, f32, f32, u8); 3] = [
     ("strong", "Maximal (photos à 96 dpi)", 120.0, 96.0, 55),
 ];
 
-/// Copie réduite : objets inutiles retirés, flux compressés ; selon le niveau, photos
-/// (JPEG) rééchantillonnées. Le chiffrement est conservé.
+/// Copie réduite : objets inutiles retirés, flux compressés et regroupés ; selon le niveau,
+/// photos (JPEG) réencodées, et rééchantillonnées si leur résolution affichée dépasse le
+/// seuil. Le chiffrement est conservé. (Pas de linéarisation : MuPDF ne la fait plus.)
 pub fn compress(pdf: &Pdf, level: &str) -> Result<Vec<u8>, String> {
     let (_, _, threshold, target, quality) = *LEVELS.iter().find(|l| l.0 == level).ok_or("niveau inconnu")?;
     let mut copy = Pdf::open_with_password(&pdf.bytes()?, pdf.password()).map_err(|e| format!("{e:?}"))?;
@@ -99,33 +100,46 @@ pub fn compress(pdf: &Pdf, level: &str) -> Result<Vec<u8>, String> {
     }
     let mut opts = PdfWriteOptions::default();
     opts.set_encryption(Encryption::Keep).set_garbage_level(4).set_compress(true).set_compress_images(true)
-        .set_compress_fonts(true).set_clean(true);
+        .set_compress_fonts(true).set_clean(true).set_object_streams(true);
     let mut out = vec![];
     copy.doc().write_to_with_options(&mut out, opts).map_err(err)?;
     Ok(out)
 }
 
-/// Photos JPEG trop fines pour leur page : réduites (par moitiés successives) puis
-/// réencodées. ponytail : seules les images JPEG sont traitées ; la résolution est estimée
-/// sur la largeur de la page (une image plus petite que la page est donc épargnée).
+/// Résolution affichée la plus fine de chaque image de la page, par dimensions (pixels) :
+/// la page indique où les images sont dessinées, pas leur numéro d'objet.
+fn displayed_dpi(page: &mupdf::Page) -> std::collections::HashMap<(u32, u32), f32> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(tp) = page.to_text_page(mupdf::TextPageFlags::PRESERVE_IMAGES) else { return out };
+    for block in tp.blocks() {
+        let (Some(img), r) = (block.image(), block.bounds()) else { continue };
+        let inches = ((r.x1 - r.x0).max(r.y1 - r.y0) / 72.0).max(0.01);
+        let px = img.width().max(img.height()) as f32;
+        let dpi = out.entry((img.width(), img.height())).or_insert(0.0f32);
+        *dpi = dpi.max(px / inches);
+    }
+    out
+}
+
+/// Photos JPEG réencodées à la qualité du niveau ; celles dont la résolution affichée
+/// dépasse `threshold` sont d'abord réduites (par moitiés) vers `target`. Comme la version
+/// Python (PyMuPDF `rewrite_images`). Une image n'est remplacée que si elle y gagne.
 fn shrink_photos(doc: &mut PdfDocument, threshold: f32, target: f32, quality: u8) -> Result<(), String> {
     let mut done = std::collections::HashSet::new();
     for i in 0..doc.page_count().map_err(err)? {
-        let mut page = doc.load_pdf_page(i).map_err(err)?;
-        let width_in = page.media_box().map_err(err)?.width() / 72.0;
+        let page = doc.load_pdf_page(i).map_err(err)?;
+        let shown = displayed_dpi(&doc.load_page(i).map_err(err)?);
         for info in page.images().map_err(err)? {
-            if !done.insert(info.xref) || info.filter.as_deref() != Some("DCTDecode") {
+            // le filtre est lu avec sa barre oblique (« /DCTDecode »)
+            if !done.insert(info.xref) || info.filter.as_deref().map(|f| f.trim_start_matches('/')) != Some("DCTDecode") {
                 continue;
             }
-            let dpi = info.width as f32 / width_in.max(0.1);
-            if dpi <= threshold {
-                continue;
-            }
+            let dpi = shown.get(&(info.width, info.height)).copied().unwrap_or(0.0);
             let raw = doc.extract_image(info.xref).map_err(err)?;
             let Ok(img) = mupdf::Image::from_bytes(&raw.encoded) else { continue };
             let Ok(mut pix) = img.to_pixmap() else { continue };
             let mut level = 0;
-            while dpi / 2f32.powi(level + 1) >= target {
+            while dpi > threshold && dpi / 2f32.powi(level + 1) >= target {
                 level += 1;
             }
             if level > 0 {
@@ -143,10 +157,20 @@ fn shrink_photos(doc: &mut PdfDocument, threshold: f32, target: f32, quality: u8
                 samples.extend_from_slice(&row[..w * n]);
             }
             let mut jpeg = vec![];
-            jpeg_encoder::Encoder::new(&mut jpeg, quality).encode(&samples, w as u16, h as u16, color).map_err(err)?;
+            let mut enc = jpeg_encoder::Encoder::new(&mut jpeg, quality);
+            // couleurs non sous-échantillonnées : même qualité que la version Python
+            enc.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_4_4);
+            enc.encode(&samples, w as u16, h as u16, color).map_err(err)?;
             if jpeg.len() < raw.encoded.len() {
-                let src = mupdf::pdf::PageImageSource::Bytes { data: &jpeg, format_hint: Some("jpg") };
-                page.replace_image(doc, info.xref, src).map_err(err)?;
+                // En place, dans l'objet image : toutes les pages qui le partagent en profitent
+                // (remplacer la ressource d'une page laissait l'ancienne image aux autres).
+                let mut obj = doc.new_indirect(info.xref, 0).map_err(err)?;
+                obj.write_raw_stream_buffer(&mupdf::Buffer::from_bytes(&jpeg).map_err(err)?).map_err(err)?;
+                obj.dict_put("Filter", doc.new_name("DCTDecode").map_err(err)?).map_err(err)?;
+                obj.dict_put("Width", doc.new_int(w as i32).map_err(err)?).map_err(err)?;
+                obj.dict_put("Height", doc.new_int(h as i32).map_err(err)?).map_err(err)?;
+                obj.dict_put("BitsPerComponent", doc.new_int(8).map_err(err)?).map_err(err)?;
+                obj.dict_delete("DecodeParms").map_err(err)?;
             }
         }
     }
@@ -319,7 +343,7 @@ mod tests {
 
         let before = made.bytes_for_disk().unwrap().len();
         let small = compress(&made, "strong").unwrap();
-        assert!(small.len() < before, "{} / {before}", small.len());
+        assert!(small.len() < before / 2, "photo réduite : {} / {before}", small.len());
         assert_eq!(Pdf::open(&small).unwrap().page_count(), 2);
         assert!(!compress(&fixture(), "lossless").unwrap().is_empty());
     }

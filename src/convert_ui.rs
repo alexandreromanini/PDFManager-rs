@@ -166,10 +166,16 @@ impl App {
         let before = std::fs::metadata(&path).map_or(0, |m| m.len() as usize);
         self.toast("Réduction de la taille…");
         self.engine.run(move |docs| {
+            // Comme la version Python : sans gain, rien n'est écrit.
             let result = docs.get(&id).ok_or("document fermé".to_string()).and_then(|pdf| convert::compress(pdf, level))
-                .and_then(|d| convert::save(&target, &d).map(|_| d.len()));
+                .and_then(|d| if before > 0 && d.len() >= before { Ok(None) } else { convert::save(&target, &d).map(|_| Some(d.len())) });
             from_engine(move |app| match result {
-                Ok(after) => app.offer_open(target, &format!("Copie réduite ({} → {})", mb(before), mb(after))),
+                Ok(Some(after)) => {
+                    let gain = 100 - 100 * after / before.max(1);
+                    app.offer_open(target, &format!("Copie réduite ({} → {}, {gain} % de moins)", mb(before), mb(after)))
+                }
+                Ok(None) => crate::dialogs::info("Réduire la taille",
+                    &format!("Aucun gain possible à ce niveau ({}) : rien n'a été écrit.", mb(before))),
                 Err(e) => app.error(&e),
             });
         });

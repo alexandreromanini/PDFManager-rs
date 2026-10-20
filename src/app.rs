@@ -254,6 +254,8 @@ pub struct App {
     pages: Rc<VecModel<PageData>>,
     /// Couleurs personnalisées (« Autre couleur… ») : commentaires, texte ajouté.
     custom: [Option<u32>; 2],
+    /// Image de signature importée, telle quelle (avant « fond transparent »).
+    sig_raw: Option<Vec<u8>>,
     sign_target: Option<sign_ui::SignTarget>,
     sig_strokes: Vec<Vec<(f32, f32)>>,
     sig_png: Option<Vec<u8>>,
@@ -1180,6 +1182,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         presenting: None,
         pages: Rc::new(VecModel::default()),
         custom: [None, None],
+        sig_raw: None,
         sign_target: None,
         sig_strokes: vec![],
         sig_png: None,
@@ -1255,7 +1258,8 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_sig_clear(|| with_app(App::sig_clear));
     ui.on_sig_typed(|t| with_app(move |app| app.sig_typed(t.to_string())));
     ui.on_sig_import(|| with_app(App::sig_import));
-    ui.on_sig_save(|mode, w, h| with_app(move |app| app.sig_save(mode, w, h)));
+    ui.on_sig_save(|mode, w, h, remember| with_app(move |app| app.sig_save(mode, w, h, remember)));
+    ui.on_sig_whiten_changed(|on| with_app(move |app| app.sig_whiten(on)));
     ui.on_sig_place(|i| with_app(move |app| app.sig_place(i.max(0) as usize)));
     ui.on_sig_delete(|i| with_app(move |app| app.sig_delete(i.max(0) as usize)));
     ui.on_pick_pfx(|| with_app(App::pick_pfx));

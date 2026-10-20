@@ -134,7 +134,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             }
             "sig-typed" => app::with_app(move |a| {
                 a.sig_typed(arg);
-                a.sig_save(1, 400.0, 150.0);
+                a.sig_save(1, 400.0, 150.0, true);
             }),
             "sig-place" => app::with_app(move |a| a.sig_place(arg.parse().unwrap_or(0))),
             "sig-delete" => app::with_app(move |a| a.sig_delete(arg.parse().unwrap_or(0))),
@@ -157,6 +157,17 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
             "menu" => ui.invoke_show_menu(),
+            "sig-import" => app::with_app(|a| a.sig_import()),
+            "sig-whiten" => {
+                ui.set_sig_whiten(arg == "1");
+                app::with_app(move |a| a.sig_whiten(arg == "1"));
+            }
+            // sig-save:mode,mémoriser (1/0)
+            "sig-save" => {
+                let (m, r) = arg.split_once(',').unwrap_or(("2", "1"));
+                let (m, r) = (m.parse().unwrap_or(2), r == "1");
+                app::with_app(move |a| a.sig_save(m, 400.0, 150.0, r));
+            }
             "custom-color" => app::with_app(move |a| a.custom_color_set(false, &arg)),
             "present" => app::with_app(|a| a.present_start()),
             // click:x,y (pixels logiques de la fenêtre)

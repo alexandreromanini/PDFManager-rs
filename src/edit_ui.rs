@@ -12,7 +12,7 @@ use crate::engine::DocId;
 use crate::pdf::{OpenError, Pdf, Rect};
 use crate::settings::write_atomic;
 
-const IMAGES: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"];
+pub(super) const IMAGES: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"];
 
 /// État d'un document après une modification, renvoyé par le moteur.
 struct Edited {
@@ -366,6 +366,11 @@ impl App {
             return;
         }
         let Some(path) = crate::dialogs::pick_file("Insérer un PDF", ("Documents PDF", &["pdf"]), None) else { return };
+        self.insert_pdf_path(path);
+    }
+
+    /// Insère le PDF après les pages sélectionnées (ou la page affichée).
+    pub(super) fn insert_pdf_path(&mut self, path: PathBuf) {
         let at = self.insert_at();
         let name = file_name(&path);
         // ponytail : le PDF inséré est lu sur le disque (un onglet ouvert dessus avec des
@@ -382,11 +387,16 @@ impl App {
             return;
         }
         let paths = crate::dialogs::pick_files("Insérer des images", ("Images", IMAGES), None);
+        self.insert_image_paths(&paths);
+    }
+
+    /// Une page par image, après les pages sélectionnées (ou la page affichée).
+    pub(super) fn insert_image_paths(&mut self, paths: &[PathBuf]) {
         if paths.is_empty() {
             return;
         }
         let mut images = vec![];
-        for p in &paths {
+        for p in paths {
             match std::fs::read(p) {
                 Ok(d) => images.push(d),
                 Err(e) => return self.error(&format!("Impossible de lire « {} » : {}.", file_name(p), reason(&e))),

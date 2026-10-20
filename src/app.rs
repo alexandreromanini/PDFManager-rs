@@ -1083,11 +1083,18 @@ impl App {
         }
     }
 
+    /// Fichier déposé : ouvert ; « Organiser les pages » ouvert, PDF et images sont insérés
+    /// dans le document, après la sélection (comme le dépôt sur les vignettes en Python).
     pub fn dropped(&mut self, path: PathBuf) {
-        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
-            self.open_path(path);
-        } else {
-            self.toast(&format!("Seuls les PDF s'ouvrent ici ({} ignoré).", file_name(&path)));
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let image = edit_ui::IMAGES.contains(&ext.as_str());
+        let organizing = !self.on_home && !self.tabs.is_empty() && self.ui().get_panel() == 1;
+        match (ext.as_str(), organizing) {
+            ("pdf", true) => self.insert_pdf_path(path),
+            ("pdf", false) => self.open_path(path),
+            (_, true) if image => self.insert_image_paths(&[path]),
+            _ if image => self.toast(&format!("{} : pour insérer une image, ouvrez « Organiser les pages » puis déposez-la.", file_name(&path))),
+            _ => self.toast(&format!("Seuls les PDF s'ouvrent ici ({} ignoré).", file_name(&path))),
         }
     }
 

@@ -390,6 +390,11 @@ export component AppWindow inherits Window {
     in property <bool> presenting;
     in property <image> present-image;
     callback present-start();
+    in property <string> undo-label;
+    in property <string> redo-label;
+    callback external-tools();
+    callback open-log-dir();
+    callback clear-recent();
     callback present-step(int);
     callback present-stop();
     callback ocr-run(int, string, bool, int);
@@ -970,7 +975,11 @@ export component AppWindow inherits Window {
                             }
                         }
                         Rectangle { height: 10px; }
-                        Text { text: "Récents"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                        HorizontalLayout {
+                            Text { text: "Récents"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                            Rectangle { horizontal-stretch: 1; }
+                            if root.recent.length > 0: Button { text: "Effacer la liste"; clicked => { root.clear-recent(); } }
+                        }
                         if root.recent.length == 0: Text { text: "Aucun fichier récent."; color: Theme.text2; }
                         for r in root.recent: Rectangle {
                             height: 52px;
@@ -1499,8 +1508,8 @@ export component AppWindow inherits Window {
                     { label: "Enregistrer une copie…", action: "save-copy" },
                     { label: "Imprimer…  (Ctrl+P)", action: "print" },
                     { label: "Propriétés du document…  (Ctrl+D)", action: "properties" },
-                    { label: "Annuler  (Ctrl+Z)", action: "undo" },
-                    { label: "Rétablir  (Ctrl+Y)", action: "redo" },
+                    { label: "Annuler" + root.undo-label + "  (Ctrl+Z)", action: "undo" },
+                    { label: "Rétablir" + root.redo-label + "  (Ctrl+Y)", action: "redo" },
                     { label: "Fermer l'onglet  (Ctrl+W)", action: "close" },
                     { label: "Accueil et fichiers récents", action: "home" },
                     { label: "Panneau latéral  (F4)", action: "sidebar" },
@@ -1511,6 +1520,8 @@ export component AppWindow inherits Window {
                     { label: "Thème : clair", action: "theme-light" },
                     { label: "Thème : sombre", action: "theme-dark" },
                     { label: "Rechercher des mises à jour…", action: "check-updates" },
+                    { label: "Outils externes détectés…", action: "external-tools" },
+                    { label: "Ouvrir le dossier des journaux", action: "log-dir" },
                     { label: "À propos", action: "about" },
                     { label: "Quitter", action: "quit" },
                 ]: Rectangle {
@@ -1538,6 +1549,8 @@ export component AppWindow inherits Window {
         if (action == "sidebar") { root.toggle-sidebar(); }
         if (action == "fullscreen") { root.toggle-fullscreen(); }
         if (action == "present") { root.present-start(); }
+        if (action == "external-tools") { root.external-tools(); }
+        if (action == "log-dir") { root.open-log-dir(); }
         if (action == "rotate-view") { root.rotate(90); }
         if (action == "theme-system") { root.set-theme("system"); }
         if (action == "theme-light") { root.set-theme("light"); }

@@ -25,6 +25,8 @@ struct Edited {
     modified: bool,
     can_undo: bool,
     can_redo: bool,
+    undo_label: String,
+    redo_label: String,
 }
 
 fn state_of(pdf: &Pdf) -> Edited {
@@ -37,6 +39,8 @@ fn state_of(pdf: &Pdf) -> Edited {
         modified: pdf.modified(),
         can_undo: pdf.undo_label().is_some(),
         can_redo: pdf.redo_label().is_some(),
+        undo_label: pdf.undo_label().unwrap_or_default().to_string(),
+        redo_label: pdf.redo_label().unwrap_or_default().to_string(),
     }
 }
 
@@ -73,6 +77,10 @@ impl App {
         ui.set_modified(tab.is_some_and(|t| t.modified));
         ui.set_can_undo(tab.is_some_and(|t| t.can_undo));
         ui.set_can_redo(tab.is_some_and(|t| t.can_redo));
+        // « Annuler « Rotation » » dans le menu, comme la version Python
+        let label = |l: Option<&String>| l.filter(|l| !l.is_empty()).map_or(String::new(), |l| format!(" « {l} »"));
+        ui.set_undo_label(label(tab.filter(|t| t.can_undo).map(|t| &t.undo_label)).into());
+        ui.set_redo_label(label(tab.filter(|t| t.can_redo).map(|t| &t.redo_label)).into());
         ui.set_crop_mode(self.crop_mode);
         let info = match tab {
             Some(t) if !t.selected.is_empty() => format!("Pages sélectionnées : {}", edit::format_pages(&t.selected)),
@@ -246,6 +254,8 @@ impl App {
         tab.modified = state.modified;
         tab.can_undo = state.can_undo;
         tab.can_redo = state.can_redo;
+        tab.undo_label = state.undo_label;
+        tab.redo_label = state.redo_label;
         tab.images.clear();
         tab.words.clear();
         tab.hits.clear();

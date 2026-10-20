@@ -575,6 +575,11 @@ impl PdfDocument {
         }
     }
 
+    /// Ajout PDFManager : le fichier était endommagé et MuPDF l'a reconstruit à l'ouverture.
+    pub fn was_repaired(&self) -> bool {
+        unsafe { pdf_was_repaired(context(), self.inner) != 0 }
+    }
+
     pub(crate) fn as_raw(&self) -> *mut pdf_document {
         self.inner
     }

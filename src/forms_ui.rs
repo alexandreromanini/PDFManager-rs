@@ -447,6 +447,31 @@ impl App {
 }
 
 impl App {
+    /// Aide : programmes facultatifs trouvés sur l'ordinateur (comme la version Python).
+    pub fn external_tools(&mut self) {
+        let found = |p: Option<std::path::PathBuf>, url: &str| match p {
+            Some(p) => p.display().to_string(),
+            None => format!("non trouvé ({url})"),
+        };
+        let ai = if crate::assistant::model_path().exists() { "installé" } else { "non téléchargé (panneau Assistant)" };
+        let text = format!("Ghostscript (PDF/A) : {}\n\nLibreOffice (Office → PDF) : {}\n\nReconnaissance du texte (OCR) : \
+                            intégrée (français, anglais)\n\nAssistant IA : {ai}",
+                           found(crate::convert::find_ghostscript(), crate::convert::GS_URL),
+                           found(crate::convert::find_libreoffice(), crate::convert::LO_URL));
+        crate::dialogs::info("Outils externes", &text);
+    }
+
+    /// Aide : dossier du journal (pdfmanager.log), pour un signalement.
+    pub fn open_log_dir(&mut self) {
+        let _ = open::that(crate::settings::data_dir());
+    }
+
+    pub fn clear_recent(&mut self) {
+        self.settings.recent.clear();
+        self.settings.save();
+        self.sync_tabs();
+    }
+
     /// Mot de passe des permissions saisi (fenêtre « Retirer la protection »).
     pub fn owner_password(&mut self, password: String) {
         self.unprotect(Some(password));

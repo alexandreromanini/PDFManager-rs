@@ -206,6 +206,9 @@ struct Tab {
     picked: Option<AnnotInfo>,
     /// Outil « Modifier les images » : image sélectionnée (page, image) et images par page.
     picked_image: Option<(usize, crate::textedit::PlacedImage)>,
+    /// Libellés des étapes à annuler / rétablir (menu).
+    undo_label: String,
+    redo_label: String,
     page_images: HashMap<usize, Vec<crate::textedit::PlacedImage>>,
     gesture: Option<annot_ui::Gesture>,
     editor: Option<annot_ui::Editor>,
@@ -307,8 +310,15 @@ impl App {
                 let signed = pdf.signed;
                 let comments = annot::list(&pdf);
                 let fields = crate::forms::fields(&pdf);
+                let repaired = pdf.doc().was_repaired();
                 docs.insert(id, pdf);
-                from_engine(move |app| app.on_opened(id, path, sizes, marks, signed, comments, fields));
+                from_engine(move |app| {
+                    if repaired {
+                        app.toast(&format!("« {} » était endommagé : réparé à l'ouverture (Enregistrer garde la version réparée).",
+                                           file_name(&path)));
+                    }
+                    app.on_opened(id, path, sizes, marks, signed, comments, fields)
+                });
             }
             Err(OpenError::NeedsPassword) => {
                 let tried = password.is_some();
@@ -415,6 +425,8 @@ impl App {
             comments,
             picked: None,
             picked_image: None,
+            undo_label: String::new(),
+            redo_label: String::new(),
             page_images: HashMap::new(),
             gesture: None,
             editor: None,
@@ -1226,6 +1238,9 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_toggle_sidebar(|| with_app(App::toggle_sidebar));
     ui.on_toggle_fullscreen(|| with_app(|a| a.toggle_fullscreen()));
     ui.on_present_start(|| with_app(|a| a.present_start()));
+    ui.on_external_tools(|| with_app(|a| a.external_tools()));
+    ui.on_open_log_dir(|| with_app(|a| a.open_log_dir()));
+    ui.on_clear_recent(|| with_app(|a| a.clear_recent()));
     ui.on_present_step(|d| with_app(move |a| a.present_step(d)));
     ui.on_present_stop(|| with_app(|a| a.present_stop()));
     ui.on_quit(|| with_app(App::quit));

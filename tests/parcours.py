@@ -567,6 +567,14 @@ def g_signature_visuelle():
     check("S2 fond gardé (non transparent) : masque entièrement opaque", mask is None or min(mask.samples) == 255,
           str(imgs) + (f" min={min(mask.samples)}" if mask else ""))
 
+def g_repare():
+    f = fresh("abime.pdf"); data = open(f, "rb").read()
+    k = data.rfind(b"startxref"); open(f, "wb").write(data[:k] + b"startxref\n999999\n%%EOF\n")
+    log, code, dt = run([f], ["etat"])
+    check("D1 fichier endommagé : ouvert et signalé réparé", any("pages=3" in x for x in etat(log)) and any("endommagé" in x for x in lines(log, "NOTE")), str(lines(log, "NOTE")))
+    log, code, dt = run([fresh("propre.pdf")], ["etat"])
+    check("D2 fichier sain : pas de message de réparation", not any("endommagé" in x for x in lines(log, "NOTE")), str(lines(log, "NOTE")))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

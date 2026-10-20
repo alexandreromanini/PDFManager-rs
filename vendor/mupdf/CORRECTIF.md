@@ -10,3 +10,6 @@ corrige ce point.
 
 Le second ajoute `PdfWriteOptions::set_object_streams` (champ `do_use_objstms` de MuPDF), absent
 de la bibliothèque : « Réduire la taille » regroupe ainsi les objets comme la version Python.
+
+Troisième ajout : `PdfDocument::was_repaired` (`pdf_was_repaired`, qui ne lève pas d'exception) :
+l'application signale un fichier endommagé réparé à l'ouverture, comme la version Python.

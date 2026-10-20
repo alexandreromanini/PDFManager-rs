@@ -381,6 +381,68 @@ pub fn add_image(pdf: &mut Pdf, page: usize, rect: Rect, data: &[u8]) -> Result<
     })
 }
 
+// ----- liens ---------------------------------------------------------------------------------
+
+/// Cible d'un lien saisie : « 12 » → page 12 ; « nom@site.fr » → e-mail ; sinon adresse web
+/// (« https:// » ajouté). Seuls http, https et mailto sont acceptés (comme à l'ouverture).
+pub fn link_target(target: &str, page_count: usize) -> Result<mupdf::pdf::LinkAction, String> {
+    use mupdf::pdf::{LinkAction, PdfAction, PdfDestination};
+    let t = target.trim();
+    if t.is_empty() {
+        return Err("Indiquez une adresse web, une adresse e-mail ou un numéro de page.".into());
+    }
+    if t.chars().all(|c| c.is_ascii_digit()) {
+        let n: usize = t.parse().map_err(|_| "Numéro de page trop grand.")?;
+        if n < 1 || n > page_count {
+            return Err(format!("La page {n} n'existe pas (1 à {page_count})."));
+        }
+        let dest = PdfDestination::Page { page: n as u32 - 1, kind: mupdf::DestinationKind::Fit };
+        return Ok(LinkAction::Dest(dest));
+    }
+    let lower = t.to_lowercase();
+    let uri = if t.contains('@') && !t.contains("://") && !lower.starts_with("mailto:") {
+        format!("mailto:{t}")
+    } else if ["http://", "https://", "mailto:"].iter().any(|p| lower.starts_with(p)) {
+        t.to_string()
+    } else if lower.split_once(':').is_some_and(|(scheme, rest)| !rest.starts_with(|c: char| c.is_ascii_digit())
+                                                     && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))) {
+        return Err("Seules les adresses web (http, https) et e-mail sont acceptées.".into());
+    } else {
+        format!("https://{t}")
+    };
+    Ok(LinkAction::Action(PdfAction::Uri(uri)))
+}
+
+/// Lien sur le cadre `rect` (repère de la page affichée).
+pub fn add_link(pdf: &mut Pdf, page: usize, rect: Rect, target: &str) -> Result<(), String> {
+    let action = link_target(target, pdf.page_count())?;
+    pdf.edit("Ajouter un lien", |doc| {
+        let mut p = doc.load_pdf_page(page as i32).map_err(err)?;
+        p.add_links(doc, &[mupdf::pdf::PdfLink { bounds: mrect(rect), action }]).map_err(err)
+    })
+}
+
+/// Retire de la page le lien sous `(x, y)` (le plus au-dessus).
+pub fn delete_link(pdf: &mut Pdf, page: usize, x: f32, y: f32) -> Result<(), String> {
+    pdf.edit("Supprimer le lien", |doc| {
+        let p = doc.load_pdf_page(page as i32).map_err(err)?;
+        let ctm = p.ctm().map_err(err)?;
+        let mut annots = p.object().get_dict("Annots").map_err(err)?.ok_or("Lien introuvable.")?;
+        for i in (0..annots.len().map_err(err)? as i32).rev() {
+            let Some(a) = annots.get_array(i).map_err(err)?.and_then(|o| o.resolve().ok().flatten()) else { continue };
+            if a.get_dict("Subtype").map_err(err)?.and_then(|s| s.as_name().ok()).as_deref() != Some(b"Link") {
+                continue;
+            }
+            let Some(r) = a.get_dict("Rect").map_err(err)? else { continue };
+            let v: Vec<f32> = (0..4).filter_map(|k| r.get_array(k).ok().flatten()?.as_float().ok()).collect();
+            if v.len() == 4 && Rect::from(mupdf::Rect::new(v[0], v[1], v[2], v[3]).transform(&ctm)).contains(x, y) {
+                return annots.array_delete(i).map_err(err);
+            }
+        }
+        Err("Lien introuvable.".into())
+    })
+}
+
 /// Largeur du texte en Helvetica (points).
 pub fn text_width(text: &str, size: f32) -> f32 {
     let Ok(font) = Font::new("Helvetica") else { return text.chars().count() as f32 * size * 0.5 };

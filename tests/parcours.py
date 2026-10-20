@@ -481,6 +481,34 @@ def g_parite():
     log, code, dt = run([fresh("sans.pdf", REPO + "/tests/fixtures/tableau.pdf")], ["split-bookmarks"], picks=[d])
     check("P3 scinder selon les signets sans signet : message", any("signet" in x for x in lines(log, "ERREUR")), str(lines(log, "ERREUR")))
 
+def g_images_liens():
+    img = REPO + "/tests/fixtures/image.png"; f = fresh("img.pdf")
+    log, code, dt = run([f], ["panel:3", "action:add-image", "drag:0,200,300,400,450", "sleep:600", "etat", "action:save", "sleep:800"], picks=[img], answers=["oui"])
+    z = float(re.search(r"zoom=([\d.]+)", etat(log)[0]).group(1))
+    r0 = pymupdf.open(f)[0].get_image_info()[0]["bbox"]
+    cx, cy = (r0[0] + r0[2]) / 2 * z, (r0[1] + r0[3]) / 2 * z
+    log, code, dt = run([f], ["panel:3", "tool:images", "sleep:800", f"drag:0,{cx},{cy},{cx+100*z},{cy+50*z}", "sleep:800", "action:save", "sleep:800"], answers=["oui"])
+    r1 = pymupdf.open(f)[0].get_image_info()[0]["bbox"]
+    check("I1 glisser l'image : déplacée de (100, 50) pt", abs(r1[0] - r0[0] - 100) < 2 and abs(r1[1] - r0[1] - 50) < 2, f"{r0} -> {r1}")
+    hx, hy = r1[2] * z - 2, r1[3] * z - 2
+    log, code, dt = run([f], ["panel:3", "tool:images", "sleep:800", f"drag:0,{hx},{hy},{hx+60*z},{hy+10*z}", "sleep:800", "action:save", "sleep:800"], answers=["oui"])
+    r2 = pymupdf.open(f)[0].get_image_info()[0]["bbox"]
+    w1, h1, w2, h2 = r1[2]-r1[0], r1[3]-r1[1], r2[2]-r2[0], r2[3]-r2[1]
+    check("I2 poignée : agrandie de 60 pt, proportions gardées", abs(w2 - w1 - 60) < 2 and abs(w2 / h2 - w1 / h1) < 0.02, f"{r1} -> {r2}")
+    cx, cy = (r2[0] + r2[2]) / 2 * z, (r2[1] + r2[3]) / 2 * z
+    log, code, dt = run([f], ["panel:3", "tool:images", "sleep:800", f"drag:0,{cx},{cy},{cx},{cy}", "action:delete", "sleep:800", "action:save", "sleep:800"], answers=["oui"])
+    check("I3 clic puis Suppr : image retirée", not pymupdf.open(f)[0].get_image_info(), str(lines(log, "ERREUR")))
+    g = fresh("lien.pdf")
+    log, code, dt = run([g], ["panel:3", "tool:link", f"drag:0,{100*z},{100*z},{250*z},{120*z}", "note:exemple.fr", "sleep:600",
+                              f"drag:0,{100*z},{140*z},{250*z},{160*z}", "note:2", "sleep:600", "action:save", "sleep:800"], answers=["oui"])
+    got = sorted((str(l.get("uri")), l.get("page")) for l in pymupdf.open(g)[0].get_links())
+    check("L1 deux liens créés (adresse web, page 2)", got == [("None", 1), ("https://exemple.fr", None)], str(got))
+    log, code, dt = run([g], ["panel:3", "tool:link", "sleep:500", f"drag:0,{150*z},{110*z},{150*z},{110*z}", "sleep:600", "action:save", "sleep:800"], answers=["oui", "oui"])
+    links = pymupdf.open(g)[0].get_links()
+    check("L2 clic sur un lien : suppression proposée et faite", len(links) == 1 and links[0].get("page") == 1, str(links))
+    log, code, dt = run([g], ["panel:3", "tool:link", f"drag:0,{100*z},{300*z},{250*z},{320*z}", "note:javascript:alert(1)", "sleep:600"])
+    check("L3 lien javascript: refusé", any("Seules les adresses web" in x for x in lines(log, "ERREUR")), str(lines(log, "ERREUR")))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

@@ -204,6 +204,9 @@ struct Tab {
     overwrite_confirmed: bool,
     comments: Vec<AnnotInfo>,
     picked: Option<AnnotInfo>,
+    /// Outil « Modifier les images » : image sélectionnée (page, image) et images par page.
+    picked_image: Option<(usize, crate::textedit::PlacedImage)>,
+    page_images: HashMap<usize, Vec<crate::textedit::PlacedImage>>,
     gesture: Option<annot_ui::Gesture>,
     editor: Option<annot_ui::Editor>,
     fields: Vec<crate::forms::FieldInfo>,
@@ -402,6 +405,8 @@ impl App {
             overwrite_confirmed: false,
             comments,
             picked: None,
+            picked_image: None,
+            page_images: HashMap::new(),
             gesture: None,
             editor: None,
             fields,

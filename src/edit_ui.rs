@@ -253,7 +253,11 @@ impl App {
         tab.crop = None;
         tab.selected = select.unwrap_or_default().into_iter().filter(|&p| p < tab.sizes.len()).collect();
         tab.thumbs.set_selected(&tab.selected);
+        tab.picked_image = None;
         self.pending.retain(|k| k.0 != id);
+        if self.tool == "images" && index == self.current {
+            self.load_page_images(); // positions changées
+        }
         if index == self.current && !self.on_home {
             self.sync_tabs();
             self.sync_document();

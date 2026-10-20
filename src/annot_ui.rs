@@ -2,6 +2,8 @@
 //! tampon, texte ajouté, image), sélection / déplacement / suppression d'un commentaire,
 //! éditeur de texte sur la page, liste des commentaires, en-têtes et filigrane.
 
+use std::collections::HashMap;
+
 use slint::{ModelRc, SharedString, VecModel};
 
 use super::{from_engine, to_view, App, Tab};
@@ -24,6 +26,8 @@ pub(super) enum Gesture {
     Draw { page: usize, a: (f32, f32), b: (f32, f32) },
     Ink { page: usize, points: Vec<(f32, f32)> },
     Move { page: usize, xref: i32, rect: Rect, a: (f32, f32), b: (f32, f32) },
+    /// Image de la page déplacée, ou agrandie par sa poignée (`resize`).
+    Image { page: usize, img: crate::textedit::PlacedImage, a: (f32, f32), b: (f32, f32), resize: bool },
 }
 
 /// Texte ajouté en cours d'écriture sur la page ; `xref` : texte existant modifié.
@@ -47,6 +51,7 @@ pub(super) enum NoteTarget {
     Edit(usize, i32),
     Combo(usize, Rect),
     RedactText,
+    Link(usize, Rect),
 }
 
 impl App {
@@ -71,9 +76,13 @@ impl App {
         ui.set_drawing(!tool.is_empty() && !MARKUP.contains(&tool));
         if let Some(tab) = self.tab() {
             tab.gesture = None;
+            tab.picked_image = None;
             if !tool.is_empty() {
                 tab.picked = None;
             }
+        }
+        if tool == "images" {
+            self.load_page_images();
         }
         let hint = match tool {
             t if MARKUP.contains(&t) => "Sélectionnez le texte à marquer.",
@@ -86,6 +95,8 @@ impl App {
             "image" => "Tracez le cadre de l'image (ou cliquez).",
             "edit-text" => "Cliquez un paragraphe pour le corriger sur place ; cliquez à côté pour valider (Échap pour annuler).",
             "redact" => "Tracez les zones à caviarder ; rien n'est retiré avant « Appliquer les caviardages ».",
+            "images" => "Cliquez une image : glissez-la pour la déplacer, tirez sa poignée (coin bas droit) pour l'agrandir, Suppr pour la retirer.",
+            "link" => "Tracez la zone du lien. Un simple clic sur un lien existant propose de le supprimer.",
             "digital-sign" => "Tracez le cadre de la signature (ou cliquez), ou cliquez un champ de signature vide.",
             t if t.starts_with("field-") => "Tracez le cadre du champ (ou cliquez). Cliquer un champ existant propose de le supprimer.",
             _ => "",
@@ -191,6 +202,22 @@ impl App {
                 self.edit_text_at(page, pt);
                 return true;
             }
+            "images" => {
+                let tol = 4.0 / tab.zoom.max(0.1);
+                let found = tab.page_images.get(&page).and_then(|list| list.iter().rev().find(|i| {
+                    Rect::new(i.rect.x0 - tol, i.rect.y0 - tol, i.rect.x1 + tol, i.rect.y1 + tol).contains(pt.0, pt.1)
+                }).cloned());
+                match found {
+                    Some(img) => {
+                        let handle = 10.0 / tab.zoom.max(0.1);
+                        let resize = (pt.0 - img.rect.x1).abs() < handle && (pt.1 - img.rect.y1).abs() < handle;
+                        tab.picked_image = Some((page, img.clone()));
+                        tab.gesture = Some(Gesture::Image { page, img, a: pt, b: pt, resize });
+                    }
+                    None => tab.picked_image = None,
+                }
+                true
+            }
             "text" if Self::hit(tab, page, pt).is_some_and(|a| a.kind == "Typewriter") => {
                 let a = Self::hit(tab, page, pt).unwrap();
                 self.edit_text(a);
@@ -211,7 +238,7 @@ impl App {
         let (w, h) = tab.sizes[page];
         let pt = (pt.0.clamp(0.0, w), pt.1.clamp(0.0, h));
         match &mut tab.gesture {
-            Some(Gesture::Draw { page: p, b, .. } | Gesture::Move { page: p, b, .. }) if *p == page => *b = pt,
+            Some(Gesture::Draw { page: p, b, .. } | Gesture::Move { page: p, b, .. } | Gesture::Image { page: p, b, .. }) if *p == page => *b = pt,
             Some(Gesture::Ink { page: p, points }) if *p == page => {
                 let last = *points.last().unwrap();
                 if (last.0 - pt.0).abs() + (last.1 - pt.1).abs() > 1.0 {
@@ -253,6 +280,23 @@ impl App {
                     self.annot_edit(move |pdf| annot::move_by(pdf, page, xref, dx, dy, &author).map(|_| 0));
                 }
             }
+            Gesture::Image { page, img, a, b, resize } => {
+                if !small(a, b) {
+                    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                    let r = img.rect;
+                    let target = if resize {
+                        // proportions conservées, coin haut gauche fixe
+                        let w = (r.width() + dx).max(8.0);
+                        Rect::new(r.x0, r.y0, r.x0 + w, r.y0 + w * r.height() / r.width().max(0.01))
+                    } else {
+                        Rect::new(r.x0 + dx, r.y0 + dy, r.x1 + dx, r.y1 + dy)
+                    };
+                    if let Some(tab) = self.tab() {
+                        tab.picked_image = None;
+                    }
+                    self.edit("", move |pdf| crate::textedit::place_image(pdf, page, &img, target).map(|_| None));
+                }
+            }
             Gesture::Ink { page, points } => {
                 if points.len() >= 2 {
                     self.annot_edit(move |pdf| annot::add_ink(pdf, page, &points, color, stroke, &author));
@@ -268,6 +312,28 @@ impl App {
                     "redact" => {
                         if !small(a, b) {
                             self.redact_zone(page, r);
+                        }
+                    }
+                    "link" => {
+                        if small(a, b) {
+                            // lien existant sous le clic : demandé au document (fil moteur)
+                            let Some(id) = self.tab().map(|t| t.id) else { return true };
+                            self.engine.run(move |docs| {
+                                let Some(pdf) = docs.get(&id) else { return };
+                                let existing = pdf.links(page).into_iter().rev().find(|l| l.rect.contains(a.0, a.1));
+                                from_engine(move |app| match existing {
+                                    Some(l) => {
+                                        let label = l.uri.unwrap_or_else(|| format!("la page {}", l.page.map_or(0, |p| p + 1)));
+                                        if super::edit_ui::ask("Lien", &format!("Supprimer le lien vers {label} ?")) {
+                                            app.edit_doc(id, move |pdf| annot::delete_link(pdf, page, a.0, a.1).map(|_| (None, String::new())));
+                                        }
+                                    }
+                                    None => app.toast("Tracez la zone du lien sur la page."),
+                                });
+                            });
+                        } else {
+                            self.pending_note = Some(NoteTarget::Link(page, r));
+                            self.show_note("Lien : adresse web, adresse e-mail ou numéro de page", "");
                         }
                     }
                     "digital-sign" => {
@@ -386,7 +452,7 @@ impl App {
             if tool_on {
                 return self.set_tool("");
             }
-            if tab.picked.take().is_none() {
+            if tab.picked.take().is_none() && tab.picked_image.take().is_none() {
                 self.leave_fullscreen();
             }
         }
@@ -394,8 +460,28 @@ impl App {
         self.update_view();
     }
 
+    /// Images de toutes les pages (outil « Modifier les images »), lues dans le moteur.
+    pub(super) fn load_page_images(&mut self) {
+        let Some(tab) = self.tab() else { return };
+        let (id, count) = (tab.id, tab.sizes.len());
+        self.engine.run(move |docs| {
+            let Some(pdf) = docs.get(&id) else { return };
+            let all: HashMap<usize, Vec<crate::textedit::PlacedImage>> =
+                (0..count).map(|i| (i, crate::textedit::images(pdf, i))).filter(|(_, v)| !v.is_empty()).collect();
+            from_engine(move |app| {
+                if let Some(tab) = app.tabs.iter_mut().find(|t| t.id == id) {
+                    tab.page_images = all;
+                }
+            });
+        });
+    }
+
     /// Suppr : supprime le commentaire sélectionné, s'il y en a un.
     pub(super) fn delete_picked(&mut self) -> bool {
+        if let Some((page, img)) = self.tab().and_then(|t| t.picked_image.take()) {
+            self.edit("", move |pdf| crate::textedit::delete_image(pdf, page, &img).map(|_| None));
+            return true;
+        }
         let Some(a) = self.tab().and_then(|t| t.picked.take()) else { return false };
         self.annot_edit(move |pdf| annot::delete(pdf, a.page, a.xref).map(|_| 0));
         true
@@ -422,6 +508,9 @@ impl App {
             }
             NoteTarget::Combo(page, r) => self.add_combo(page, r, &text),
             NoteTarget::RedactText => self.redact_text(text.trim().to_string()),
+            NoteTarget::Link(page, r) => {
+                self.edit("", move |pdf| annot::add_link(pdf, page, r, &text).map(|_| None));
+            }
             NoteTarget::Edit(page, xref) => {
                 self.annot_edit(move |pdf| annot::set_content(pdf, page, xref, &text, &author).map(|_| 0));
             }
@@ -447,8 +536,10 @@ impl App {
 
     fn sync_picked(&mut self) {
         let text = self.tab().and_then(|t| t.picked.clone());
+        let image = self.tab().is_some_and(|t| t.picked_image.is_some());
         let info: SharedString = match text {
             Some(a) => format!("{} sélectionné(e) - Suppr pour le supprimer, glisser pour le déplacer.", a.label()).into(),
+            None if image => "Image sélectionnée - glisser pour la déplacer, poignée pour l'agrandir, Suppr pour la retirer.".into(),
             None => "".into(),
         };
         self.ui().set_picked_info(info);
@@ -493,6 +584,12 @@ impl App {
         if let Some(a) = tab.picked.as_ref().filter(|a| a.page == page) {
             frames.push(a.rect);
         }
+        if let Some((_, img)) = tab.picked_image.as_ref().filter(|(p, _)| *p == page) {
+            // cadre et poignée (coin bas droit)
+            let (r, h) = (img.rect, 4.0 / tab.zoom.max(0.1));
+            frames.push(r);
+            frames.push(Rect::new(r.x1 - h, r.y1 - h, r.x1 + h, r.y1 + h));
+        }
         let size = tab.sizes[page];
         let mut point = |cmd: char, (x, y): (f32, f32)| {
             let v = to_view(&Rect::new(x, y, x, y), size, tab.rotation, tab.zoom);
@@ -510,6 +607,15 @@ impl App {
             Some(Gesture::Move { page: p, rect, a, b, .. }) if *p == page => {
                 let (dx, dy) = (b.0 - a.0, b.1 - a.1);
                 frames.push(Rect::new(rect.x0 + dx, rect.y0 + dy, rect.x1 + dx, rect.y1 + dy));
+            }
+            Some(Gesture::Image { page: p, img, a, b, resize }) if *p == page => {
+                let (dx, dy, r) = (b.0 - a.0, b.1 - a.1, img.rect);
+                frames.push(if *resize {
+                    let w = (r.width() + dx).max(8.0);
+                    Rect::new(r.x0, r.y0, r.x0 + w, r.y0 + w * r.height() / r.width().max(0.01))
+                } else {
+                    Rect::new(r.x0 + dx, r.y0 + dy, r.x1 + dx, r.y1 + dy)
+                });
             }
             Some(Gesture::Ink { page: p, points }) if *p == page => {
                 for (k, &q) in points.iter().enumerate() {

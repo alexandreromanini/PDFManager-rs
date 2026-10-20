@@ -715,7 +715,12 @@ export component AppWindow inherits Window {
                             Tile { x: 0px; icon: Icons.pointer; text: "Sélection"; checked: root.tool == ""; clicked => { root.set-tool(""); } }
                             Tile { x: 62px; icon: Icons.edit; text: "Modifier le texte"; checked: root.tool == "edit-text"; clicked => { root.set-tool("edit-text"); } }
                             Tile { x: 124px; icon: Icons.type; text: "Ajouter du texte"; checked: root.tool == "text"; clicked => { root.set-tool("text"); } }
-                            Tile { x: 186px; icon: Icons.image; text: "Image"; checked: root.tool == "image"; clicked => { root.action("add-image"); } }
+                            Tile { x: 186px; icon: Icons.image-plus; text: "Insérer une image"; checked: root.tool == "image"; clicked => { root.action("add-image"); } }
+                        }
+                        Rectangle {
+                            height: 62px;
+                            Tile { x: 0px; icon: Icons.image; text: "Modifier les images"; checked: root.tool == "images"; clicked => { root.set-tool("images"); } }
+                            Tile { x: 62px; icon: Icons.link; text: "Lien"; checked: root.tool == "link"; clicked => { root.set-tool("link"); } }
                         }
                         Section { text: "Texte ajouté"; height: 28px; vertical-alignment: center; }
                         HorizontalLayout {

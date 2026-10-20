@@ -378,6 +378,120 @@ pub fn edit_block(pdf: &mut Pdf, block: &TextBlock, new_text: &str) -> Result<Ve
 
 // ----- caviardage définitif ---------------------------------------------------------------
 
+// ----- images de la page : déplacer, redimensionner, supprimer ---------------------------------
+
+/// Image affichée sur la page (comme la version Python : les images d'un groupe, tournées ou
+/// affichées plusieurs fois ne se modifient pas).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedImage {
+    pub xref: i32,
+    /// Nom de la ressource (« Im1 ») dans la page.
+    pub name: String,
+    pub rect: Rect,
+    pub rotated: bool,
+    /// Affichée plusieurs fois sur la page (ou plusieurs images de mêmes dimensions).
+    pub shared: bool,
+}
+
+/// Images de la page, de la plus en dessous à la plus au-dessus.
+pub fn images(pdf: &Pdf, page: usize) -> Vec<PlacedImage> {
+    let doc = pdf.doc();
+    let (Ok(p), Ok(pp)) = (doc.load_page(page as i32), doc.load_pdf_page(page as i32)) else { return vec![] };
+    let resources = pp.images().unwrap_or_default();
+    let Ok(tp) = p.to_text_page(TextPageFlags::PRESERVE_IMAGES) else { return vec![] };
+    let shown: Vec<(u32, u32, Rect, bool)> = tp.blocks()
+        .filter(|b| b.r#type() == TextBlockType::Image)
+        .filter_map(|b| {
+            let img = b.image()?;
+            let m = b.ctm()?;
+            let rotated = m.b.abs() > 1e-3 || m.c.abs() > 1e-3 || m.a < 0.0 || m.d < 0.0;
+            Some((img.width(), img.height(), Rect::from(b.bounds()), rotated))
+        })
+        .collect();
+    shown.iter().filter_map(|&(w, h, rect, rotated)| {
+        let same: Vec<_> = resources.iter().filter(|r| r.width == w && r.height == h).collect();
+        let res = same.first()?; // sinon : image d'un groupe (Form XObject)
+        let shared = same.len() > 1 || shown.iter().filter(|s| s.0 == w && s.1 == h).count() > 1;
+        Some(PlacedImage { xref: res.xref, name: res.name.trim_start_matches('/').to_string(), rect, rotated, shared })
+    }).collect()
+}
+
+/// Retire « /nom Do » du contenu de la page (l'image reste pour les autres pages).
+fn remove_placements(doc: &mut PdfDocument, page: usize, name: &str) -> Result<usize, String> {
+    let p = doc.load_pdf_page(page as i32).map_err(err)?;
+    let Some(contents) = p.object().get_dict("Contents").map_err(err)? else { return Ok(0) };
+    let mut streams = vec![];
+    if contents.is_array().map_err(err)? {
+        for i in 0..contents.len().map_err(err)? as i32 {
+            streams.extend(contents.get_array(i).map_err(err)?);
+        }
+    } else {
+        streams.push(contents);
+    }
+    let pattern = format!("/{name}");
+    let mut count = 0;
+    for mut stream in streams {
+        let data = stream.read_stream().map_err(err)?;
+        let (mut out, mut i, mut changed) = (Vec::with_capacity(data.len()), 0, false);
+        while i < data.len() {
+            if data[i..].starts_with(pattern.as_bytes()) {
+                let mut j = i + pattern.len();
+                let ws = j;
+                while j < data.len() && data[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                let ends = |k: usize| k >= data.len() || data[k].is_ascii_whitespace() || b"/[<(%".contains(&data[k]);
+                if j > ws && data[j..].starts_with(b"Do") && ends(j + 2) {
+                    out.push(b' ');
+                    i = j + 2;
+                    count += 1;
+                    changed = true;
+                    continue;
+                }
+            }
+            out.push(data[i]);
+            i += 1;
+        }
+        if changed {
+            stream.write_stream_buffer(&mupdf::Buffer::from_bytes(&out).map_err(err)?).map_err(err)?;
+        }
+    }
+    Ok(count)
+}
+
+fn single(img: &PlacedImage) -> Result<(), String> {
+    if img.shared {
+        return Err("Cette image est affichée plusieurs fois sur la page : modification non prise en charge.".into());
+    }
+    Ok(())
+}
+
+pub fn delete_image(pdf: &mut Pdf, page: usize, img: &PlacedImage) -> Result<(), String> {
+    single(img)?;
+    pdf.edit("Supprimer l'image", |doc| match remove_placements(doc, page, &img.name)? {
+        0 => Err("Image introuvable dans le contenu de la page.".into()),
+        _ => Ok(()),
+    })
+}
+
+/// Déplace / redimensionne l'image (même objet image : pas de recompression).
+pub fn place_image(pdf: &mut Pdf, page: usize, img: &PlacedImage, rect: Rect) -> Result<(), String> {
+    if img.rotated {
+        return Err("Image tournée ou inclinée : déplacement non pris en charge.".into());
+    }
+    single(img)?;
+    pdf.edit("Déplacer l'image", |doc| {
+        if remove_placements(doc, page, &img.name)? != 1 {
+            return Err("Image introuvable dans le contenu de la page.".into());
+        }
+        let mut p = doc.load_pdf_page(page as i32).map_err(err)?;
+        let inv = p.ctm().map_err(err)?.invert().ok_or("transformation de page invalide")?;
+        let target = mupdf::Rect::new(rect.x0, rect.y0, rect.x1, rect.y1).transform(&inv);
+        p.insert_image(doc, target, mupdf::pdf::PageImageSource::ExistingXref(img.xref), Default::default()).map_err(err)?;
+        Ok(())
+    })
+}
+
 fn is_redact(a: &mupdf::pdf::PdfAnnotation) -> bool {
     a.r#type().ok() == Some(PdfAnnotationType::Redact)
 }
@@ -541,6 +655,39 @@ mod tests {
 
     fn words(pdf: &Pdf, page: usize) -> Vec<String> {
         pdf.words(page).into_iter().map(|w| w.text).collect()
+    }
+
+    /// Image ajoutée, retrouvée, déplacée et agrandie, puis supprimée ; liens créés et retirés.
+    #[test]
+    fn images_et_liens() {
+        let mut pdf = fixture();
+        let png = std::fs::read("tests/fixtures/image.png").unwrap();
+        crate::annot::add_image(&mut pdf, 0, Rect::new(100.0, 300.0, 300.0, 450.0), &png).unwrap();
+        let imgs = images(&pdf, 0);
+        assert_eq!(imgs.len(), 1, "{imgs:?}");
+        let img = &imgs[0];
+        assert!(!img.rotated && !img.shared && img.rect.contains(200.0, 375.0), "{img:?}");
+        let to = Rect::new(50.0, 500.0, 350.0, 700.0);
+        place_image(&mut pdf, 0, img, to).unwrap();
+        let moved = images(&pdf, 0);
+        assert_eq!(moved.len(), 1);
+        assert!((moved[0].rect.x0 - 50.0).abs() < 1.0 && (moved[0].rect.y1 - 700.0).abs() < 1.0, "{:?}", moved[0].rect);
+        delete_image(&mut pdf, 0, &moved[0]).unwrap();
+        assert!(images(&pdf, 0).is_empty());
+        pdf.undo().unwrap();
+        assert_eq!(images(&pdf, 0).len(), 1, "Ctrl+Z rend l'image");
+
+        use crate::annot::{add_link, delete_link, link_target};
+        add_link(&mut pdf, 0, Rect::new(100.0, 100.0, 200.0, 120.0), "exemple.fr").unwrap();
+        add_link(&mut pdf, 0, Rect::new(100.0, 140.0, 200.0, 160.0), "3").unwrap();
+        let links = pdf.links(0);
+        assert!(links.iter().any(|l| l.uri.as_deref() == Some("https://exemple.fr") && l.rect.contains(150.0, 110.0)), "{links:?}");
+        assert!(links.iter().any(|l| l.page == Some(2) && l.rect.contains(150.0, 150.0)), "{links:?}");
+        delete_link(&mut pdf, 0, 150.0, 110.0).unwrap();
+        assert_eq!(pdf.links(0).len(), 1);
+        assert!(delete_link(&mut pdf, 0, 500.0, 500.0).is_err());
+        assert!(link_target("javascript:alert(1)", 3).is_err() && link_target("9", 3).is_err() && link_target(" ", 3).is_err());
+        assert!(matches!(link_target("moi@site.fr", 3), Ok(mupdf::pdf::LinkAction::Action(mupdf::pdf::PdfAction::Uri(u))) if u == "mailto:moi@site.fr"));
     }
 
     fn block_of(pdf: &Pdf, page: usize, word: &str) -> (TextBlock, Rect) {

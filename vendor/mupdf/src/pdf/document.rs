@@ -149,6 +149,12 @@ impl PdfWriteOptions {
         self
     }
 
+    /// Ajout PDFManager : objets regroupés dans des « object streams » (fichier plus petit).
+    pub fn set_object_streams(&mut self, value: bool) -> &mut Self {
+        self.inner.do_use_objstms = if value { 1 } else { 0 };
+        self
+    }
+
     pub fn clean(&self) -> bool {
         self.inner.do_clean != 0
     }

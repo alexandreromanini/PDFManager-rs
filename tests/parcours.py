@@ -583,6 +583,17 @@ def g_depot():
     log, code, dt = run([f], [f"drop:{img}", "etat"])
     check("G2 hors Organiser : image déposée, consigne affichée", any("Organiser les pages" in x for x in lines(log, "NOTE")), str(lines(log, "NOTE")))
 
+def g_poignee():
+    f = fresh("poignee.pdf"); z = 1.56
+    run([f], ["panel:3", "tool:text", f"drag:0,{100*z},{100*z},{300*z},{130*z}", "type:Bonjour tout le monde", "action:editor-commit",
+              "sleep:500", "action:save", "sleep:800"], answers=["oui"])
+    page = pymupdf.open(f)[0]; r0 = [a.rect for a in page.annots()][0]
+    hx, hy = r0.x1 * z - 1, r0.y1 * z - 1
+    log, code, dt = run([f], ["tool:", f"drag:0,{hx},{hy},{hx},{hy}", f"drag:0,{hx},{hy},{hx + 80*z},{hy + 20*z}", "sleep:600", "action:save", "sleep:800"], answers=["oui"])
+    page = pymupdf.open(f)[0]; anns = [(a.rect, a.info["content"]) for a in page.annots()]
+    check("T1 poignée : texte ajouté élargi de 80 pt, contenu gardé",
+          len(anns) == 1 and abs(anns[0][0].x1 - r0.x1 - 80) < 2 and anns[0][1] == "Bonjour tout le monde", str(anns))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

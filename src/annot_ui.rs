@@ -26,7 +26,8 @@ fn color(hex: u32) -> Color {
 pub(super) enum Gesture {
     Draw { page: usize, a: (f32, f32), b: (f32, f32) },
     Ink { page: usize, points: Vec<(f32, f32)> },
-    Move { page: usize, xref: i32, rect: Rect, a: (f32, f32), b: (f32, f32) },
+    /// Commentaire déplacé ; `resize` : texte ajouté / texte libre élargi par sa poignée.
+    Move { page: usize, xref: i32, rect: Rect, a: (f32, f32), b: (f32, f32), resize: Option<String> },
     /// Image de la page déplacée, ou agrandie par sa poignée (`resize`).
     Image { page: usize, img: crate::textedit::PlacedImage, a: (f32, f32), b: (f32, f32), resize: bool },
 }
@@ -228,7 +229,10 @@ impl App {
             "" => match Self::hit(tab, page, pt) {
                 Some(a) => {
                     if a.movable() {
-                        tab.gesture = Some(Gesture::Move { page, xref: a.xref, rect: a.rect, a: pt, b: pt });
+                        let handle = 10.0 / tab.zoom.max(0.1);
+                        let on_handle = a.is_text() && (pt.0 - a.rect.x1).abs() < handle && (pt.1 - a.rect.y1).abs() < handle;
+                        tab.gesture = Some(Gesture::Move { page, xref: a.xref, rect: a.rect, a: pt, b: pt,
+                                                           resize: on_handle.then(|| a.content.clone()) });
                     }
                     tab.picked = Some(a);
                     true
@@ -326,10 +330,17 @@ impl App {
         let small = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 5.0 && (a.1 - b.1).abs() < 5.0;
         let around = |a: (f32, f32), w: f32, h: f32| Rect::new(a.0 - w / 2.0, a.1 - h / 2.0, a.0 + w / 2.0, a.1 + h / 2.0);
         match gesture {
-            Gesture::Move { page, xref, a, b, .. } => {
+            Gesture::Move { page, xref, rect, a, b, resize } => {
                 if !small(a, b) {
                     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-                    self.annot_edit(move |pdf| annot::move_by(pdf, page, xref, dx, dy, &author).map(|_| 0));
+                    match resize {
+                        // poignée : cadre élargi (coin haut gauche fixe), texte recomposé
+                        Some(text) => {
+                            let r = Rect::new(rect.x0, rect.y0, (rect.x1 + dx).max(rect.x0 + 20.0), (rect.y1 + dy).max(rect.y0 + 10.0));
+                            self.annot_edit(move |pdf| annot::update_text(pdf, page, xref, &text, Some(r), &author).map(|_| 0));
+                        }
+                        None => self.annot_edit(move |pdf| annot::move_by(pdf, page, xref, dx, dy, &author).map(|_| 0)),
+                    }
                 }
             }
             Gesture::Image { page, img, a, b, resize } => {
@@ -642,6 +653,11 @@ impl App {
         let mut path = String::new();
         if let Some(a) = tab.picked.as_ref().filter(|a| a.page == page) {
             frames.push(a.rect);
+            if a.is_text() {
+                // poignée pour élargir le texte
+                let (r, h) = (a.rect, 4.0 / tab.zoom.max(0.1));
+                frames.push(Rect::new(r.x1 - h, r.y1 - h, r.x1 + h, r.y1 + h));
+            }
         }
         if let Some((_, img)) = tab.picked_image.as_ref().filter(|(p, _)| *p == page) {
             // cadre et poignée (coin bas droit)
@@ -663,9 +679,12 @@ impl App {
                     frames.push(Rect::new(a.0, a.1, b.0, b.1));
                 }
             }
-            Some(Gesture::Move { page: p, rect, a, b, .. }) if *p == page => {
+            Some(Gesture::Move { page: p, rect, a, b, resize, .. }) if *p == page => {
                 let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-                frames.push(Rect::new(rect.x0 + dx, rect.y0 + dy, rect.x1 + dx, rect.y1 + dy));
+                frames.push(match resize {
+                    Some(_) => Rect::new(rect.x0, rect.y0, (rect.x1 + dx).max(rect.x0 + 20.0), (rect.y1 + dy).max(rect.y0 + 10.0)),
+                    None => Rect::new(rect.x0 + dx, rect.y0 + dy, rect.x1 + dx, rect.y1 + dy),
+                });
             }
             Some(Gesture::Image { page: p, img, a, b, resize }) if *p == page => {
                 let (dx, dy, r) = (b.0 - a.0, b.1 - a.1, img.rect);

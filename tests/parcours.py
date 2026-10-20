@@ -466,6 +466,21 @@ def g_clavier():
     log, code, dt = run([f], ["resize:720,640", "etat"])
     check("A10 fenêtre redimensionnée à 720 px : pas d'erreur", not lines(log, "ERREUR") and "panicked" not in log, log[-300:])
 
+# ----- 10. parité avec la version Python ----------------------------------------------------
+def g_parite():
+    a = fresh("Partie A.pdf"); b = fresh("Partie B.pdf"); merged = os.path.join(W, "fusion-signets.pdf")
+    log, code, dt = run([a], ["action:merge", "merge:add", "merge:run", "sleep:1500"], picks=[b, merged])
+    toc = pymupdf.open(merged).get_toc()
+    check("P1 fusion : un signet par fichier", [t[1:] for t in toc if t[0] == 1] == [["Partie A", 1], ["Partie B", 4]], str(toc))
+    d = os.path.join(W, "par-signets"); os.makedirs(d, exist_ok=True)
+    log, code, dt = run([merged], ["split-bookmarks", "sleep:1000"], picks=[d], answers=["non"])
+    files = sorted(os.listdir(d))
+    check("P2 scinder selon les signets : un fichier par signet, nommé d'après lui",
+          files == ["fusion-signets - 01 - Partie A.pdf", "fusion-signets - 02 - Partie B.pdf"]
+          and all(pages(os.path.join(d, f)) == 3 for f in files), str(files) + str(lines(log, "ERREUR")))
+    log, code, dt = run([fresh("sans.pdf", REPO + "/tests/fixtures/tableau.pdf")], ["split-bookmarks"], picks=[d])
+    check("P3 scinder selon les signets sans signet : message", any("signet" in x for x in lines(log, "ERREUR")), str(lines(log, "ERREUR")))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

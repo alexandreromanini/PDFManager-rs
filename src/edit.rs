@@ -227,15 +227,51 @@ pub fn extract(pdf: &Pdf, pages: &[usize]) -> Result<Vec<u8>, String> {
 }
 
 /// Fusionne des documents (contenus déjà déverrouillés) dans l'ordre donné.
-pub fn merge(sources: &[Vec<u8>]) -> Result<Vec<u8>, String> {
-    let mut out_doc = PdfDocument::new();
-    for data in sources {
-        let src = PdfDocument::from_bytes(data).map_err(err)?;
-        out_doc.insert_pdf(&src, InsertPdfOptions::default()).map_err(err)?;
+/// Concatène les documents (titre, contenu) ; chacun devient un signet de premier niveau,
+/// ses propres signets en dessous (comme la version Python).
+pub fn merge(sources: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    fn shift(items: Vec<mupdf::Outline>, by: u32) -> Vec<mupdf::Outline> {
+        items.into_iter().map(|mut o| {
+            if let Some(d) = o.dest.as_mut() {
+                d.loc.page_number += by;
+                d.loc.page_in_chapter += by;
+            }
+            o.down = shift(std::mem::take(&mut o.down), by);
+            o
+        }).collect()
     }
+    let mut out_doc = PdfDocument::new();
+    let mut toc = vec![];
+    for (title, data) in sources {
+        let src = PdfDocument::from_bytes(data).map_err(err)?;
+        let start = out_doc.page_count().map_err(err)? as u32;
+        let down = shift(src.outlines().unwrap_or_default(), start);
+        out_doc.insert_pdf(&src, InsertPdfOptions::default()).map_err(err)?;
+        let loc = mupdf::document::Location { chapter: 0, page_in_chapter: start, page_number: start };
+        toc.push(mupdf::Outline { title: title.clone(), uri: None, down,
+                                  dest: Some(mupdf::link::LinkDestination { loc, kind: mupdf::DestinationKind::Fit }) });
+    }
+    out_doc.set_outlines(&toc).map_err(err)?;
     let mut out = vec![];
     out_doc.write_to(&mut out).map_err(err)?;
     Ok(out)
+}
+
+/// Pages groupées par signet de premier niveau (titre, pages) : les pages qui précèdent le
+/// premier signet vont avec lui ; deux signets sur la même page n'en font qu'un.
+pub fn split_by_bookmarks(marks: &[crate::pdf::Bookmark], count: usize) -> Result<Vec<(String, Vec<usize>)>, String> {
+    let mut starts: Vec<(usize, String)> = marks.iter()
+        .filter_map(|b| (b.level == 0).then_some((b.page?, b.title.clone())))
+        .filter(|(p, _)| *p < count)
+        .collect();
+    starts.sort_by_key(|s| s.0);
+    starts.dedup_by_key(|s| s.0);
+    if starts.is_empty() {
+        return Err("Ce document n'a pas de signet de premier niveau.".into());
+    }
+    let mut bounds: Vec<usize> = std::iter::once(0).chain(starts[1..].iter().map(|s| s.0)).collect();
+    bounds.push(count);
+    Ok(starts.into_iter().enumerate().map(|(k, (_, title))| (title, (bounds[k]..bounds[k + 1]).collect())).collect())
 }
 
 /// Pages groupées pour scinder : toutes les `n` pages.
@@ -313,7 +349,14 @@ mod tests {
         let out = extract(&pdf, &[3, 1]).unwrap();
         let extracted = Pdf::open(&out).unwrap();
         assert_eq!(first_words(&extracted), ["Bonjour page 3", "Bonjour page 1"]);
-        let merged = Pdf::open(&merge(&[out.clone(), out]).unwrap()).unwrap();
+        let merged = Pdf::open(&merge(&[("A".into(), out.clone()), ("B".into(), out)]).unwrap()).unwrap();
         assert_eq!(merged.page_count(), 4);
+        // un signet par fichier, vers sa première page, ses propres signets en dessous
+        let marks: Vec<_> = merged.bookmarks().into_iter().filter(|b| b.level == 0).map(|b| (b.title, b.page)).collect();
+        assert_eq!(marks, [("A".to_string(), Some(0)), ("B".to_string(), Some(2))]);
+        assert!(merged.bookmarks().iter().any(|b| b.level == 1 && b.title == "Début" && b.page == Some(3)));
+        let groups = split_by_bookmarks(&merged.bookmarks(), 4).unwrap();
+        assert_eq!(groups, [("A".to_string(), vec![0, 1]), ("B".to_string(), vec![2, 3])]);
+        assert!(split_by_bookmarks(&[], 4).is_err());
     }
 }

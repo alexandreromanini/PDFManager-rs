@@ -271,6 +271,8 @@ export component AppWindow inherits Window {
     default-font-family: "Segoe UI Variable Text";
 
     in property <bool> dark;
+    property <string> split-ranges;
+    property <int> split-count: 1;
     // fenêtre étroite : catalogue d'outils replié en colonne d'icônes (assigné, pas lié :
     // la largeur de la fenêtre dépend elle-même de la mise en page)
     property <bool> narrow;
@@ -313,7 +315,7 @@ export component AppWindow inherits Window {
     callback thumb-drag(int, length, length);
     callback thumb-release();
     callback merge-command(string);
-    callback split-run(bool, int, string);
+    callback split-run(int, int, string);
     public function show-merge() { merge-popup.show(); }
     public function show-split() { split-popup.show(); }
     public function show-menu() { menu.show(); }
@@ -1535,19 +1537,21 @@ export component AppWindow inherits Window {
                 padding: 20px;
                 spacing: 10px;
                 Text { text: "Scinder le document"; font-size: 16px; font-weight: 600; color: Theme.text; }
-                ranges := LineEdit { placeholder-text: "Plages, une par fichier : 1-3, 4-10, 11-"; enabled: !every.checked; }
-                HorizontalLayout {
+                split-mode := ComboBox { model: ["Selon des plages (une par fichier)", "Toutes les N pages", "Selon les signets de premier niveau"]; current-index: 0; }
+                if split-mode.current-index == 0: ranges := LineEdit { placeholder-text: "1-3, 4-10, 11-"; edited(t) => { root.split-ranges = t; } }
+                if split-mode.current-index == 1: HorizontalLayout {
                     spacing: 8px;
-                    every := CheckBox { text: "Ou bien toutes les"; }
-                    count := SpinBox { minimum: 1; maximum: 9999; value: 1; width: 100px; enabled: every.checked; }
+                    Text { text: "Toutes les"; color: Theme.text; vertical-alignment: center; }
+                    SpinBox { minimum: 1; maximum: 9999; value: root.split-count; width: 100px; edited(v) => { root.split-count = v; } }
                     Text { text: "pages"; color: Theme.text; vertical-alignment: center; }
                 }
+                if split-mode.current-index == 2: Text { text: "Un fichier par signet de premier niveau, nommé d'après lui."; color: Theme.text2; wrap: word-wrap; }
                 Text { text: "Le dossier de destination se choisit à l'étape suivante."; color: Theme.text2; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { split-popup.close(); } }
-                    Button { text: "Scinder…"; primary: true; clicked => { split-popup.close(); root.split-run(every.checked, count.value, ranges.text); } }
+                    Button { text: "Scinder…"; primary: true; clicked => { split-popup.close(); root.split-run(split-mode.current-index, root.split-count, root.split-ranges); } }
                 }
             }
         }

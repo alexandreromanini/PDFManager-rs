@@ -119,7 +119,10 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
                 app::with_app(move |a| a.prop_edited(i, t));
             }
             "props-save" => app::with_app(|a| a.props_save()),
-            "clean" => app::with_app(|a| a.clean_run(true, true, true, true)),
+            // clean ou clean:tout (avec texte invisible, liens et valeurs des champs)
+            "clean" => app::with_app(move |a| a.clean_run(crate::textedit::CleanOptions {
+                metadata: true, javascript: true, attachments: true, thumbnails: true,
+                hidden_text: arg == "tout", links: arg == "tout", forms: arg == "tout" })),
             "ocr" => app::with_app(move |a| a.ocr_run(0, arg, false, 300)),
             "export-images" => app::with_app(move |a| a.export_images_run(false, 72, arg)),
             "compress" => app::with_app(move |a| a.compress_run(arg.parse().unwrap_or(0))),

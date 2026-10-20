@@ -591,11 +591,61 @@ pub fn apply_redactions(pdf: &mut Pdf) -> Result<(usize, usize), String> {
 }
 
 /// « Nettoyer le document » : informations cachées retirées. Renvoie ce qui l'a été.
-pub fn clean(pdf: &mut Pdf, metadata: bool, javascript: bool, attachments: bool, thumbnails: bool)
-             -> Result<Vec<&'static str>, String> {
+/// Ce que « Nettoyer le document » retire (cases de la fenêtre, comme la version Python).
+#[derive(Clone, Copy, Default)]
+pub struct CleanOptions {
+    pub metadata: bool,
+    pub javascript: bool,
+    pub attachments: bool,
+    pub thumbnails: bool,
+    /// Texte invisible : retire aussi une couche OCR.
+    pub hidden_text: bool,
+    pub links: bool,
+    /// Valeurs des champs de formulaire.
+    pub forms: bool,
+}
+
+/// Retire du contenu les blocs de texte invisibles (mode de rendu 3, celui des couches OCR).
+fn strip_invisible_text(data: &[u8]) -> (Vec<u8>, usize) {
+    let token = |d: &[u8], i: usize, t: &[u8]| {
+        d[i..].starts_with(t) && (i == 0 || d[i - 1].is_ascii_whitespace()) && d.get(i + t.len()).is_none_or(|c| c.is_ascii_whitespace())
+    };
+    let (mut out, mut i, mut count) = (Vec::with_capacity(data.len()), 0, 0);
+    while i < data.len() {
+        if token(data, i, b"BT") {
+            let end = (i + 2..data.len()).find(|&j| token(data, j, b"ET")).map_or(data.len(), |j| j + 2);
+            let block = &data[i..end];
+            if block.windows(4).any(|w| w == b"3 Tr") {
+                count += 1;
+                i = end;
+                continue;
+            }
+            out.extend_from_slice(block);
+            i = end;
+            continue;
+        }
+        out.push(data[i]);
+        i += 1;
+    }
+    (out, count)
+}
+
+pub fn clean(pdf: &mut Pdf, o: CleanOptions) -> Result<Vec<&'static str>, String> {
+    let CleanOptions { metadata, javascript, attachments, thumbnails, hidden_text, links, forms } = o;
     let mut done = vec![];
     let pages = pdf.page_count();
+    let fields = if forms { crate::forms::fields(pdf) } else { vec![] };
     pdf.edit("Nettoyer le document", |doc| {
+        if forms {
+            crate::forms::reset_values(doc, &fields)?;
+            done.push("valeurs des champs");
+        }
+        if hidden_text {
+            done.push("texte invisible");
+        }
+        if links {
+            done.push("liens");
+        }
         let mut catalog = doc.catalog().map_err(err)?;
         let mut names = catalog.get_dict("Names").map_err(err)?;
         if metadata {
@@ -628,6 +678,35 @@ pub fn clean(pdf: &mut Pdf, metadata: bool, javascript: bool, attachments: bool,
             }
             if javascript {
                 obj.dict_delete("AA").map_err(err)?;
+            }
+            if links {
+                if let Some(mut annots) = obj.get_dict("Annots").map_err(err)? {
+                    for k in (0..annots.len().map_err(err)? as i32).rev() {
+                        let link = annots.get_array(k).map_err(err)?.and_then(|a| a.resolve().ok().flatten())
+                            .and_then(|a| a.get_dict("Subtype").ok().flatten()).and_then(|s| s.as_name().ok());
+                        if link.as_deref() == Some(b"Link") {
+                            annots.array_delete(k).map_err(err)?;
+                        }
+                    }
+                }
+            }
+            if hidden_text {
+                if let Some(contents) = obj.get_dict("Contents").map_err(err)? {
+                    let mut streams = vec![];
+                    if contents.is_array().map_err(err)? {
+                        for k in 0..contents.len().map_err(err)? as i32 {
+                            streams.extend(contents.get_array(k).map_err(err)?);
+                        }
+                    } else {
+                        streams.push(contents);
+                    }
+                    for mut st in streams {
+                        let (data, n) = strip_invisible_text(&st.read_stream().map_err(err)?);
+                        if n > 0 {
+                            st.write_stream_buffer(&mupdf::Buffer::from_bytes(&data).map_err(err)?).map_err(err)?;
+                        }
+                    }
+                }
             }
             if attachments {
                 let files: Vec<i32> = p.annotations().filter(|a| a.r#type().ok() == Some(PdfAnnotationType::FileAttachment))
@@ -792,8 +871,21 @@ mod tests {
         let mut values = crate::security::metadata(&pdf);
         values[0] = "Secret".into();
         crate::security::set_metadata(&mut pdf, &values).unwrap();
-        clean(&mut pdf, true, true, true, true).unwrap();
+        // couche OCR (texte invisible), lien, champ rempli : retirés avec les options
+        crate::ocr::add_text_layers(&mut pdf, &[(0, vec![(Rect::new(100.0, 600.0, 160.0, 615.0), "Invisible".into())])]).unwrap();
+        crate::annot::add_link(&mut pdf, 0, Rect::new(100.0, 100.0, 200.0, 120.0), "exemple.fr").unwrap();
+        crate::forms::add_field(&mut pdf, 0, Rect::new(100.0, 400.0, 300.0, 422.0), "text", "Nom", &[]).unwrap();
+        let field = crate::forms::fields(&pdf).into_iter().find(|f| f.name == "Nom").unwrap();
+        crate::forms::set_value(&mut pdf, &field, "Dupont").unwrap();
+        assert!(words(&pdf, 0).contains(&"Invisible".to_string()));
+        let all = CleanOptions { metadata: true, javascript: true, attachments: true, thumbnails: true,
+                                 hidden_text: true, links: true, forms: true };
+        clean(&mut pdf, all).unwrap();
         let reopened = Pdf::open(&pdf.bytes_for_disk().unwrap()).unwrap();
         assert_eq!(crate::security::metadata(&reopened)[0], "");
+        let w = words(&reopened, 0);
+        assert!(!w.contains(&"Invisible".to_string()) && w.contains(&"renard".to_string()), "{w:?}");
+        assert!(reopened.links(0).is_empty());
+        assert_eq!(crate::forms::fields(&reopened).iter().find(|f| f.name == "Nom").map(|f| f.value.clone()), Some(String::new()));
     }
 }

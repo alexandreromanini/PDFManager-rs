@@ -22,6 +22,7 @@ usages.
 | 6 | OCR, assistant IA, conversions | ✅ 0.6.0 |
 | 7 | Signatures, comparaison | ✅ 0.7.0 |
 | Audit | Tests de bout en bout, 23 corrections (voir [AUDIT.md](AUDIT.md)) | ✅ 0.7.1 |
+| Parité | Toutes les fonctions de la version Python (voir [COMPARAISON.md](COMPARAISON.md)) | ✅ 0.8.0 |
 
 ## Fonctions (phase 1)
 
@@ -131,6 +132,25 @@ usages.
 - Comparer deux PDF, mot à mot sur tout le document : différences listées dans le rail de
   droite et surlignées dans les deux documents.
 
+## Fonctions ajoutées (parité avec la version Python)
+
+- Modifier : **Modifier les images** (cliquer, glisser, poignée pour agrandir, Suppr) ;
+  **Lien** (tracer la zone : adresse web, e-mail ou numéro de page ; un clic sur un lien
+  existant propose de le supprimer) ; poignée pour élargir un texte ajouté.
+- Affichage : outil **Main** (H ; V pour revenir à la sélection), **présentation** (F5),
+  rotation de la vue au clavier (Ctrl+Maj+- / Ctrl+Maj++).
+- Couleurs : « Autre couleur… » (code #RRGGBB), couleur et épaisseur mémorisées par outil,
+  couleur du filigrane ; marge de l'en-tête et du pied de page.
+- Pages : PDF et images déposés insérés quand « Organiser les pages » est ouvert ; fusion
+  avec un signet par fichier ; scission selon les signets.
+- Formulaires : nom demandé à la création ; Tab / Maj+Tab d'un champ texte à l'autre.
+- Nettoyer : texte invisible (couche OCR), liens, valeurs des champs (au choix).
+- OCR en parallèle et résolution d'analyse réglable ; export Word avec tableaux ; réduction
+  des photos ; PDF/A conforme (OutputIntent sRGB).
+- Signature manuscrite : fond transparent et mémorisation au choix.
+- Recherche d'outil dans le catalogue ; menu : « Annuler « … » », outils externes détectés,
+  dossier des journaux ; fichier endommagé signalé ; « Effacer la liste » des récents.
+
 ## Installation
 
 Installeur `PDFManager-rs-<version>-setup.exe` (onglet Actions du dépôt, artefact
@@ -144,7 +164,7 @@ cargo run --release -- fichier.pdf
 cargo test --release
 # Captures d'écran hors écran (développement) :
 cargo run --release --features capture -- --capture sortie.ppm 1280 820 light fichier.pdf -- search:mot
-# Parcours de bout en bout (129 scénarios, l'appli pilotée hors écran ; pip install pymupdf) :
+# Parcours de bout en bout (154 scénarios, l'appli pilotée hors écran ; pip install pymupdf) :
 cargo build --release --features capture && python tests/parcours.py
 ```
 

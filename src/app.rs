@@ -1002,6 +1002,55 @@ impl App {
         w.window().set_fullscreen(!w.window().is_fullscreen());
     }
 
+    // ----- présentation (F5) ----------------------------------------------------------------------
+
+    pub fn present_start(&mut self) {
+        let Some(page) = self.tab().map(|t| t.current) else { return };
+        self.presenting = Some(page);
+        let ui = self.ui();
+        ui.set_present_image(Image::default());
+        ui.set_presenting(true);
+        ui.window().set_fullscreen(true);
+        self.present_render();
+    }
+
+    pub fn present_step(&mut self, delta: i32) {
+        let (Some(page), Some(count)) = (self.presenting, self.tab().map(|t| t.sizes.len())) else { return };
+        let next = (page as i64 + delta as i64).clamp(0, count as i64 - 1) as usize;
+        if next != page {
+            self.presenting = Some(next);
+            self.present_render();
+        }
+    }
+
+    pub fn present_stop(&mut self) {
+        let Some(page) = self.presenting.take() else { return };
+        let ui = self.ui();
+        ui.set_presenting(false);
+        ui.set_present_image(Image::default());
+        ui.window().set_fullscreen(false);
+        self.go_to(page);
+    }
+
+    /// Page entière à la taille de l'écran (pixels réels), rendue dans le moteur.
+    fn present_render(&mut self) {
+        let Some(page) = self.presenting else { return };
+        let Some(tab) = self.tab() else { return };
+        let (id, rotation, (pw, ph)) = (tab.id, tab.rotation, tab.sizes[page]);
+        let ui = self.ui();
+        let size = ui.window().size();
+        let (w, h) = if rotation.rem_euclid(180) == 90 { (ph, pw) } else { (pw, ph) };
+        let zoom = (size.width as f32 / w).min(size.height as f32 / h).max(0.1);
+        self.engine.run(move |docs| {
+            let Some(Ok(r)) = docs.get(&id).map(|pdf| pdf.render(page, zoom, rotation)) else { return };
+            from_engine(move |app| {
+                if app.presenting == Some(page) {
+                    app.ui().set_present_image(to_image(r));
+                }
+            });
+        });
+    }
+
     /// Échap, en dernier recours : sortir du plein écran.
     pub fn leave_fullscreen(&self) {
         self.ui().window().set_fullscreen(false);
@@ -1170,6 +1219,9 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     });
     ui.on_toggle_sidebar(|| with_app(App::toggle_sidebar));
     ui.on_toggle_fullscreen(|| with_app(|a| a.toggle_fullscreen()));
+    ui.on_present_start(|| with_app(|a| a.present_start()));
+    ui.on_present_step(|d| with_app(move |a| a.present_step(d)));
+    ui.on_present_stop(|| with_app(|a| a.present_stop()));
     ui.on_quit(|| with_app(App::quit));
     ui.on_password_entered(|pw| with_app(move |a| a.password_entered(pw.to_string())));
     ui.on_password_cancelled(|| with_app(App::password_cancelled));

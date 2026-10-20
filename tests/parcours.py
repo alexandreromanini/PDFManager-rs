@@ -509,6 +509,24 @@ def g_images_liens():
     log, code, dt = run([g], ["panel:3", "tool:link", f"drag:0,{100*z},{300*z},{250*z},{320*z}", "note:javascript:alert(1)", "sleep:600"])
     check("L3 lien javascript: refusé", any("Seules les adresses web" in x for x in lines(log, "ERREUR")), str(lines(log, "ERREUR")))
 
+# ----- 11. vraie souris et clavier : gestes, outil Main, présentation ------------------------
+def g_souris():
+    f = fresh("souris.pdf")
+    log, code, dt = run([f], ["tool:rect", "mouse-drag:500,400,700,600", "sleep:500", "etat"])
+    check("R1 tracer un rectangle à la souris (glisser réel)", any("commentaires=1" in x for x in etat(log)), str(etat(log)))
+    log, code, dt = run([f], ["tool:ellipse", "mouse-drag:500,400,700,600", "sleep:500", "tool:", "mouse-drag:600,500,600,800", "sleep:500",
+                              "action:save", "sleep:800"], answers=["oui"])
+    r = [a.rect for a in pymupdf.open(f)[0].annots()]
+    check("R2 déplacer un commentaire à la souris", len(r) == 1 and r[0].y0 > 400, str(r))
+    log, code, dt = run([f], ["key:h", "mouse-drag:600,800,600,150", "sleep:300", "etat", "key:v", "etat"])
+    e = [x for x in etat(log) if x.startswith("onglet")]
+    a = [x for x in etat(log) if x.startswith("accueil")]
+    # R3 commence par H sans aucun clic : les raccourcis sont actifs dès l'ouverture
+    check("R3 H puis glisser : la page défile (Main), V : retour à la sélection",
+          re.search(r"haut=(\d+)", e[0]) and int(re.search(r"haut=(\d+)", e[0]).group(1)) > 500 and "outil=«  »" in a[1], str(e) + str(a))
+    log, code, dt = run([f], ["key:F5", "sleep:600", "key:Right", "sleep:600", "key:Escape", "sleep:300", "etat"])
+    check("R4 F5, flèche, Échap : présentation puis retour à la page 2", any("page=2" in x for x in etat(log)) and not lines(log, "ERREUR"), str(etat(log)))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

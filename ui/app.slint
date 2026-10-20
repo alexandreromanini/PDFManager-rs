@@ -366,6 +366,12 @@ export component AppWindow inherits Window {
     in property <[ChatMessage]> chat;
     callback export-images-run(bool, int, string);
     callback compress-run(int);
+    // présentation (F5) : une page à la fois, plein écran, fond noir
+    in property <bool> presenting;
+    in property <image> present-image;
+    callback present-start();
+    callback present-step(int);
+    callback present-stop();
     callback ocr-run(int, string, bool, int);
     callback ai-ask(string);
     callback chat-page(int);
@@ -471,7 +477,18 @@ export component AppWindow inherits Window {
     keys := FocusScope {
         focus-on-tab-navigation: false; // Tab va directement au premier bouton
         key-pressed(e) => {
+            if (root.presenting) {
+                if (e.text == Key.Escape || e.text == Key.F5) { root.present-stop(); return accept; }
+                if (e.text == Key.RightArrow || e.text == Key.DownArrow || e.text == Key.PageDown || e.text == " " || e.text == Key.Return) { root.present-step(1); return accept; }
+                if (e.text == Key.LeftArrow || e.text == Key.UpArrow || e.text == Key.PageUp || e.text == Key.Backspace) { root.present-step(-1); return accept; }
+                if (e.text == Key.Home) { root.present-step(-100000); return accept; }
+                if (e.text == Key.End) { root.present-step(100000); return accept; }
+                return accept;
+            }
             if (e.modifiers.control) {
+                // rotation de l'affichage : Ctrl+Maj+- / Ctrl+Maj++
+                if (e.modifiers.shift && (e.text == "+" || e.text == "=")) { root.rotate(90); return accept; }
+                if (e.modifiers.shift && (e.text == "-" || e.text == "_")) { root.rotate(-90); return accept; }
                 if (e.text == "o" || e.text == "O") { root.open(); return accept; }
                 if (e.text == "w" || e.text == "W") { root.close-tab(root.current-tab); return accept; }
                 if (e.text == "f" || e.text == "F") { root.focus-search(); return accept; }
@@ -493,6 +510,9 @@ export component AppWindow inherits Window {
             if (e.text == Key.F3) { root.search-step(e.modifiers.shift ? -1 : 1); return accept; }
             if (e.text == Key.F4) { root.toggle-sidebar(); return accept; }
             if (e.text == Key.F11) { root.toggle-fullscreen(); return accept; }
+            if (e.text == Key.F5) { root.present-start(); return accept; }
+            if (!e.modifiers.alt && (e.text == "h" || e.text == "H")) { root.set-tool("hand"); return accept; }
+            if (!e.modifiers.alt && (e.text == "v" || e.text == "V")) { root.set-tool(""); return accept; }
             if (e.text == Key.PageDown) { root.step-page(1); return accept; }
             if (e.text == Key.PageUp) { root.step-page(-1); return accept; }
             if (e.text == Key.Home) { root.page-entered("1"); return accept; }
@@ -645,9 +665,10 @@ export component AppWindow inherits Window {
                             Text { text: "Commenter"; font-size: 16px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
                         }
                         Rectangle {
-                            height: 3 * 62px;
+                            height: 4 * 62px;
                             for t[i] in [
                                 { id: "", text: "Sélection", icon: Icons.pointer },
+                                { id: "hand", text: "Main", icon: Icons.hand },
                                 { id: "highlight", text: "Surligner", icon: Icons.highlighter },
                                 { id: "underline", text: "Souligner", icon: Icons.underline },
                                 { id: "strikeout", text: "Barrer", icon: Icons.strikethrough },
@@ -1022,9 +1043,19 @@ export component AppWindow inherits Window {
                                 content-y <=> root.scroll-y;
                                 changed content-y => { root.scrolled(-self.content-y, self.visible-height); }
                                 changed visible-height => { root.scrolled(-self.content-y, self.visible-height); }
+                                // fond de la vue ; outil Main : la page suit le pointeur (zone hors des
+                                // pages répétées, qui sont recréées quand le défilement change de page)
                                 wheel := TouchArea {
                                     width: view.content-width;
                                     height: view.content-height;
+                                    mouse-cursor: root.tool == "hand" ? (self.pressed ? MouseCursor.grabbing : MouseCursor.grab) : MouseCursor.default;
+                                    pointer-event(e) => { if (e.kind == PointerEventKind.down) { keys.focus(); } }
+                                    moved => {
+                                        if (self.pressed && root.tool == "hand") {
+                                            view.content-y = min(0px, max(view.visible-height - view.content-height, view.content-y + self.mouse-y - self.pressed-y));
+                                            view.content-x = min(0px, max(view.visible-width - view.content-width, view.content-x + self.mouse-x - self.pressed-x));
+                                        }
+                                    }
                                     scroll-event(e) => {
                                         if (e.modifiers.control) { root.wheel-zoom(e.delta-y); return accept; }
                                         return reject;
@@ -1055,6 +1086,7 @@ export component AppWindow inherits Window {
                                         stroke-width: 2px;
                                     }
                                     pta := TouchArea {
+                                        enabled: root.tool != "hand"; // outil Main : le fond de la vue s'en charge
                                         mouse-cursor: root.crop-mode || root.drawing ? MouseCursor.crosshair : MouseCursor.text;
                                         double-clicked => { root.page-double(p.index, self.mouse-x, self.mouse-y); }
                                         pointer-event(e) => {
@@ -1356,6 +1388,22 @@ export component AppWindow inherits Window {
             }
             }
         }
+        if root.presenting: Rectangle {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            background: black;
+            Image { source: root.present-image; width: parent.width; height: parent.height; image-fit: contain; }
+            TouchArea {
+                mouse-cursor: MouseCursor.none;
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) { root.present-step(1); }
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.right) { root.present-step(-1); }
+                }
+                scroll-event(e) => { root.present-step(e.delta-y < 0 ? 1 : -1); return accept; }
+            }
+        }
     }
 
     // ----- menu ⋯ -----------------------------------------------------------------------------
@@ -1389,6 +1437,7 @@ export component AppWindow inherits Window {
                     { label: "Accueil et fichiers récents", action: "home" },
                     { label: "Panneau latéral  (F4)", action: "sidebar" },
                     { label: "Plein écran  (F11)", action: "fullscreen" },
+                    { label: "Présentation  (F5)", action: "present" },
                     { label: "Pivoter l'affichage (sans modifier le fichier)", action: "rotate-view" },
                     { label: "Thème : système", action: "theme-system" },
                     { label: "Thème : clair", action: "theme-light" },
@@ -1420,6 +1469,7 @@ export component AppWindow inherits Window {
         if (action == "home") { root.go-home(); }
         if (action == "sidebar") { root.toggle-sidebar(); }
         if (action == "fullscreen") { root.toggle-fullscreen(); }
+        if (action == "present") { root.present-start(); }
         if (action == "rotate-view") { root.rotate(90); }
         if (action == "theme-system") { root.set-theme("system"); }
         if (action == "theme-light") { root.set-theme("light"); }

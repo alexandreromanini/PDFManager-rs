@@ -154,6 +154,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
             "menu" => ui.invoke_show_menu(),
+            "present" => app::with_app(|a| a.present_start()),
             // click:x,y (pixels logiques de la fenêtre)
             "click" => {
                 let (x, y) = arg.split_once(',').unwrap_or(("0", "0"));
@@ -195,6 +196,10 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
                     "Tab" => slint::platform::Key::Tab.into(),
                     "Return" => slint::platform::Key::Return.into(),
                     "Escape" => slint::platform::Key::Escape.into(),
+                    "F5" => slint::platform::Key::F5.into(),
+                    "F11" => slint::platform::Key::F11.into(),
+                    "Right" => slint::platform::Key::RightArrow.into(),
+                    "Left" => slint::platform::Key::LeftArrow.into(),
                     "espace" => " ".into(),
                     t => t.into(),
                 };

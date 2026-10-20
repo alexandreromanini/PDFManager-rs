@@ -1142,6 +1142,14 @@ export component AppWindow inherits Window {
                                     background: #ffffffe6;
                                     border-width: 1px;
                                     border-color: Theme.accent;
+                                    // Tab / Maj+Tab : champ suivant / précédent ; Ctrl+Entrée : valider
+                                    FocusScope {
+                                        capture-key-pressed(e) => {
+                                            if (e.text == Key.Tab) { root.action(e.modifiers.shift ? "field-prev" : "field-next"); return accept; }
+                                            if (e.text == Key.Backtab) { root.action("field-prev"); return accept; }
+                                            if (e.modifiers.control && e.text == Key.Return) { root.action("editor-commit"); return accept; }
+                                            return reject;
+                                        }
                                     editor-input := TextInput {
                                         x: 4px;
                                         y: 3px;
@@ -1152,6 +1160,7 @@ export component AppWindow inherits Window {
                                         single-line: root.editor-single;
                                         init => { self.focus(); }
                                         accepted => { root.action("editor-commit"); }
+                                    }
                                     }
                                 }
                             }

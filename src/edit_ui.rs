@@ -122,6 +122,8 @@ impl App {
                 }
             }
             "editor-commit" => self.editor_commit(),
+            "field-next" => self.field_step(true),
+            "field-prev" => self.field_step(false),
             "sign-create" => self.sig_create(),
             "compare" => self.compare_start(),
             "verify" => self.verify_signatures(),

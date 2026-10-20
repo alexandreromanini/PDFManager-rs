@@ -1243,7 +1243,9 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_owner_entered(|pw| with_app(move |app| app.unprotect(Some(pw.to_string()))));
     ui.on_prop_edited(|i, t| with_app(move |app| app.prop_edited(i.max(0) as usize, t.to_string())));
     ui.on_props_save(|| with_app(App::props_save));
-    ui.on_clean_run(|m, j, a, t| with_app(move |app| app.clean_run(m, j, a, t)));
+    ui.on_clean_run(|metadata, javascript, attachments, thumbnails, hidden_text, links, forms| with_app(move |app| {
+        app.clean_run(crate::textedit::CleanOptions { metadata, javascript, attachments, thumbnails, hidden_text, links, forms })
+    }));
     ui.on_export_images_run(|jpg, dpi, pages| with_app(move |app| app.export_images_run(jpg, dpi, pages.to_string())));
     ui.on_compress_run(|level| with_app(move |app| app.compress_run(level.max(0) as usize)));
     ui.on_ocr_run(|lang, pages, all, dpi| with_app(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all, dpi)));

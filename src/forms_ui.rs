@@ -413,13 +413,13 @@ impl App {
         });
     }
 
-    pub fn clean_run(&mut self, metadata: bool, javascript: bool, attachments: bool, thumbnails: bool) {
-        if !(metadata || javascript || attachments || thumbnails) {
+    pub fn clean_run(&mut self, o: textedit::CleanOptions) {
+        if !(o.metadata || o.javascript || o.attachments || o.thumbnails || o.hidden_text || o.links || o.forms) {
             return;
         }
         let keep = self.tab().map(|t| t.selected.clone()).unwrap_or_default();
         self.edit_report(move |pdf| {
-            let done = textedit::clean(pdf, metadata, javascript, attachments, thumbnails)?;
+            let done = textedit::clean(pdf, o)?;
             Ok((Some(keep), format!("Nettoyé : {} (effectif à l'enregistrement).", done.join(", "))))
         });
     }

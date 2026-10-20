@@ -393,7 +393,7 @@ export component AppWindow inherits Window {
     callback ocr-run(int, string, bool, int);
     callback ai-ask(string);
     callback chat-page(int);
-    callback clean-run(bool, bool, bool, bool);
+    callback clean-run(bool, bool, bool, bool, bool, bool, bool);
     in property <bool> editor-single;
     in property <[string]> choices;
     in property <string> choice-title;
@@ -2013,6 +2013,9 @@ export component AppWindow inherits Window {
                 c-js := CheckBox { text: "JavaScript et actions automatiques"; checked: true; }
                 c-files := CheckBox { text: "Pièces jointes"; checked: true; }
                 c-thumbs := CheckBox { text: "Vignettes intégrées"; checked: true; }
+                c-hidden := CheckBox { text: "Texte invisible (retire aussi une couche OCR !)"; }
+                c-links := CheckBox { text: "Liens"; }
+                c-forms := CheckBox { text: "Valeurs des champs de formulaire"; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
@@ -2020,7 +2023,7 @@ export component AppWindow inherits Window {
                     Button {
                         text: "Nettoyer";
                         primary: true;
-                        clicked => { clean-popup.close(); root.clean-run(c-meta.checked, c-js.checked, c-files.checked, c-thumbs.checked); }
+                        clicked => { clean-popup.close(); root.clean-run(c-meta.checked, c-js.checked, c-files.checked, c-thumbs.checked, c-hidden.checked, c-links.checked, c-forms.checked); }
                     }
                 }
             }

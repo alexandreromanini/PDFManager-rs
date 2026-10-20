@@ -97,6 +97,21 @@ fn find(p: &PdfPage, xref: i32) -> Result<PdfWidget, String> {
     p.widgets().find(|w| w.xref().ok() == Some(xref)).ok_or_else(|| "Champ introuvable.".into())
 }
 
+/// Vide les valeurs des champs (« Nettoyer le document ») : texte effacé, cases décochées ;
+/// apparences régénérées. Champs en lecture seule, signatures et boutons laissés.
+pub(crate) fn reset_values(doc: &mut mupdf::pdf::PdfDocument, fields: &[FieldInfo]) -> Result<usize, String> {
+    let mut count = 0;
+    for f in fields.iter().filter(|f| !f.readonly && !matches!(f.kind, "signature" | "button")) {
+        let p = doc.load_pdf_page(f.page as i32).map_err(err)?;
+        let mut w = find(&p, f.xref)?;
+        let empty = if matches!(f.kind, "check" | "radio") { "Off" } else { "" };
+        w.set_value(doc, empty, true).map_err(err)?;
+        w.update().map_err(err)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 /// État « coché » d'une case (« Yes » le plus souvent) : la clé de /AP /N autre que Off.
 fn on_state(w: &PdfWidget) -> String {
     let n = w.annotation().object().get_dict("AP").ok().flatten().and_then(|ap| ap.get_dict("N").ok().flatten());

@@ -252,6 +252,8 @@ pub struct App {
     /// Pages affichées : un seul modèle, mis à jour sur place. En affecter un nouveau
     /// recréerait les pages, et le geste en cours (tracé, sélection) perdrait la souris.
     pages: Rc<VecModel<PageData>>,
+    /// Couleurs personnalisées (« Autre couleur… ») : commentaires, texte ajouté.
+    custom: [Option<u32>; 2],
     sign_target: Option<sign_ui::SignTarget>,
     sig_strokes: Vec<Vec<(f32, f32)>>,
     sig_png: Option<Vec<u8>>,
@@ -1177,6 +1179,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         comparison: None,
         presenting: None,
         pages: Rc::new(VecModel::default()),
+        custom: [None, None],
         sign_target: None,
         sig_strokes: vec![],
         sig_png: None,
@@ -1227,7 +1230,8 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_password_cancelled(|| with_app(App::password_cancelled));
     ui.on_action(|a| with_app(move |app| app.action(a.as_str())));
     ui.on_set_tool(|t| with_app(move |app| app.set_tool(t.as_str())));
-    ui.on_pick_color(|text, i| with_app(move |app| app.pick_color(text, i.clamp(0, 5) as usize)));
+    ui.on_pick_color(|text, i| with_app(move |app| app.pick_color(text, i.clamp(0, 6) as usize)));
+    ui.on_custom_color_set(|text, hex| with_app(move |app| app.custom_color_set(text, &hex)));
     ui.on_text_size_changed(|s| with_app(move |app| app.text_size_changed(s)));
     ui.on_set_author(|a| with_app(move |app| app.set_author(a.to_string())));
     ui.on_page_double(|p, x, y| with_app(move |app| app.page_double(p.max(0) as usize, x, y)));
@@ -1271,11 +1275,11 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_comment_clicked(|i| with_app(move |app| app.comment_clicked(i.max(0) as usize)));
     ui.on_comment_edit(|i| with_app(move |app| app.comment_edit(i.max(0) as usize)));
     ui.on_comment_delete(|i| with_app(move |app| app.comment_delete(i.max(0) as usize)));
-    ui.on_header_run(|tl, tc, tr, bl, bc, br, size, start, pages| with_app(move |app| {
-        app.header_run([tl, tc, tr, bl, bc, br].map(|s| s.to_string()), size, start, pages.to_string())
+    ui.on_header_run(|tl, tc, tr, bl, bc, br, size, start, pages, margin| with_app(move |app| {
+        app.header_run([tl, tc, tr, bl, bc, br].map(|s| s.to_string()), size, start, pages.to_string(), margin)
     }));
-    ui.on_watermark_run(|text, size, opacity, angle, pages| with_app(move |app| {
-        app.watermark_run(text.to_string(), size, opacity, angle, pages.to_string())
+    ui.on_watermark_run(|text, size, opacity, angle, pages, color| with_app(move |app| {
+        app.watermark_run(text.to_string(), size, opacity, angle, pages.to_string(), color)
     }));
     ui.on_set_panel(|p| with_app(move |app| app.set_panel(p)));
     ui.on_thumb_press(|i, ctrl, shift| with_app(move |app| app.thumb_press(i.max(0) as usize, ctrl, shift)));

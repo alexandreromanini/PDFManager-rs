@@ -154,6 +154,7 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "text-size" => app::with_app(move |a| a.text_size_changed(arg.parse().unwrap_or(12))),
             "etat" => app::with_app(|a| a.dump_state()),
             "menu" => ui.invoke_show_menu(),
+            "custom-color" => app::with_app(move |a| a.custom_color_set(false, &arg)),
             "present" => app::with_app(|a| a.present_start()),
             // click:x,y (pixels logiques de la fenêtre)
             "click" => {
@@ -227,8 +228,8 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
                 });
             }
             "header" => app::with_app(|a| a.header_run(["{fichier}".into(), String::new(), "{date}".into(), String::new(),
-                                                         "Page {n} sur {total}".into(), String::new()], 10, 1, String::new())),
-            "watermark" => app::with_app(move |a| a.watermark_run(arg, 72, 30, 45, String::new())),
+                                                         "Page {n} sur {total}".into(), String::new()], 10, 1, String::new(), 10)),
+            "watermark" => app::with_app(move |a| a.watermark_run(arg, 72, 30, 45, String::new(), 0)),
             _ => {}
         }
         pump(&queue, 800);

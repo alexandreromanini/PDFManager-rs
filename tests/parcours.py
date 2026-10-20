@@ -527,6 +527,19 @@ def g_souris():
     log, code, dt = run([f], ["key:F5", "sleep:600", "key:Right", "sleep:600", "key:Escape", "sleep:300", "etat"])
     check("R4 F5, flèche, Échap : présentation puis retour à la page 2", any("page=2" in x for x in etat(log)) and not lines(log, "ERREUR"), str(etat(log)))
 
+def g_couleurs():
+    f = fresh("couleurs.pdf")
+    log, code, dt = run([f], ["tool:rect", "custom-color:#2E7D32", "drag:0,100,100,300,200", "tool:ellipse", "color:2",
+                              "tool:rect", "drag:0,100,300,300,400", "tool:ellipse", "drag:0,100,500,300,600", "sleep:600",
+                              "action:save", "sleep:800"], answers=["oui"])
+    page = pymupdf.open(f)[0]  # gardée : ses annotations en dépendent
+    cols = [(t, c) for _, t, c in sorted((a.rect.y0, a.type[1], tuple(round(c, 2) for c in a.colors["stroke"])) for a in page.annots())]
+    green, blue = (0.18, 0.49, 0.2), (0.39, 0.71, 0.96)
+    check("C1 autre couleur (#2E7D32) appliquée au rectangle", cols[:1] == [("Square", green)], str(cols))
+    check("C2 couleur mémorisée par outil (rectangle : vert, ellipse : bleu)", cols[1:] == [("Square", green), ("Circle", blue)], str(cols))
+    log, code, dt = run([f], ["custom-color:vert"])
+    check("C3 code de couleur invalide : message", any("n'est pas un code de couleur" in x for x in lines(log, "ERREUR")), str(lines(log, "ERREUR")))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

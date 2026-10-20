@@ -336,20 +336,31 @@ export component AppWindow inherits Window {
     callback thumb-release();
     callback merge-command(string);
     callback split-run(int, int, string);
+    // erreur du champ « Pages » (vide si correct) ; affichée dans la fenêtre, qui reste ouverte
+    pure callback pages-error(string) -> string;
+    property <string> pages-message;
+    property <bool> ocr-signed;
     public function show-merge() { merge-popup.show(); }
-    public function show-split() { split-popup.show(); }
+    public function show-split() { root.pages-message = ""; split-popup.show(); }
     public function show-menu() { menu.show(); }
     public function show-note() { note-popup.show(); }
-    public function show-header() { header-popup.show(); }
-    public function show-watermark() { watermark-popup.show(); }
+    public function show-header() { root.pages-message = ""; header-popup.show(); }
+    public function show-watermark() { root.pages-message = ""; watermark-popup.show(); }
     public function show-choices() { choice-popup.show(); }
     public function show-protect() { protect-popup.show(); }
     public function show-owner() { owner-popup.show(); }
     public function show-props() { props-popup.show(); }
     public function show-clean() { clean-popup.show(); }
-    public function show-ocr() { ocr-popup.show(); }
+    function ocr-go(lang: int, pages: string, all: bool, dpi: int) {
+        root.pages-message = root.pages-error(pages);
+        if root.pages-message == "" {
+            ocr-popup.close();
+            root.ocr-run(lang, pages, all, dpi);
+        }
+    }
+    public function show-ocr(signed: bool) { root.ocr-signed = signed; root.pages-message = ""; ocr-popup.show(); }
     public function show-compress() { compress-popup.show(); }
-    public function show-images() { images-popup.show(); }
+    public function show-images() { root.pages-message = ""; images-popup.show(); }
     public function show-sig-create() { sig-create-popup.show(); }
     public function show-digital() { digital-popup.show(); }
     function show-signatures() {
@@ -1686,7 +1697,7 @@ export component AppWindow inherits Window {
                 spacing: 10px;
                 Text { text: "Scinder le document"; font-size: 16px; font-weight: 600; color: Theme.text; }
                 split-mode := ComboBox { model: ["Selon des plages (une par fichier)", "Toutes les N pages", "Selon les signets de premier niveau"]; current-index: 0; }
-                if split-mode.current-index == 0: ranges := LineEdit { placeholder-text: "1-3, 4-10, 11-"; edited(t) => { root.split-ranges = t; } }
+                if split-mode.current-index == 0: ranges := LineEdit { placeholder-text: "1-3, 4-10, 11-"; edited(t) => { root.split-ranges = t; root.pages-message = ""; } }
                 if split-mode.current-index == 1: HorizontalLayout {
                     spacing: 8px;
                     Text { text: "Toutes les"; color: Theme.text; vertical-alignment: center; }
@@ -1695,11 +1706,18 @@ export component AppWindow inherits Window {
                 }
                 if split-mode.current-index == 2: Text { text: "Un fichier par signet de premier niveau, nommé d'après lui."; color: Theme.text2; wrap: word-wrap; }
                 Text { text: "Le dossier de destination se choisit à l'étape suivante."; color: Theme.text2; wrap: word-wrap; }
+                if root.pages-message != "": Text { text: root.pages-message; color: Theme.accent; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { split-popup.close(); } }
-                    Button { text: "Scinder…"; primary: true; clicked => { split-popup.close(); root.split-run(split-mode.current-index, root.split-count, root.split-ranges); } }
+                    Button { text: "Scinder…"; primary: true; clicked => {
+                        root.pages-message = split-mode.current-index == 0 ? root.pages-error(root.split-ranges) : "";
+                        if root.pages-message == "" {
+                            split-popup.close();
+                            root.split-run(split-mode.current-index, root.split-count, root.split-ranges);
+                        }
+                    } }
                 }
             }
         }
@@ -1786,8 +1804,9 @@ export component AppWindow inherits Window {
                     h-margin := SpinBox { minimum: 0; maximum: 60; value: 10; width: 90px; }
                     Rectangle { width: 12px; }
                     Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
-                    h-pages := LineEdit { placeholder-text: "toutes (ou 2-10)"; }
+                    h-pages := LineEdit { placeholder-text: "toutes (ou 2-10)"; edited => { root.pages-message = ""; } }
                 }
+                if root.pages-message != "": Text { text: root.pages-message; color: Theme.accent; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
@@ -1796,6 +1815,8 @@ export component AppWindow inherits Window {
                         text: "Ajouter";
                         primary: true;
                         clicked => {
+                            root.pages-message = root.pages-error(h-pages.text);
+                            if root.pages-message != "" { return; }
                             header-popup.close();
                             root.header-run(h-tl.text, h-tc.text, h-tr.text, h-bl.text, h-bc.text, h-br.text,
                                             h-size.value, h-start.value, h-pages.text, h-margin.value);
@@ -1835,9 +1856,10 @@ export component AppWindow inherits Window {
                         Text { text: "Inclinaison (°)"; color: Theme.text; vertical-alignment: center; }
                         w-angle := SpinBox { minimum: -90; maximum: 90; value: 45; }
                         Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
-                        w-pages := LineEdit { placeholder-text: "toutes"; }
+                        w-pages := LineEdit { placeholder-text: "toutes"; edited => { root.pages-message = ""; } }
                     }
                 }
+                if root.pages-message != "": Text { text: root.pages-message; color: Theme.accent; wrap: word-wrap; }
                 HorizontalLayout {
                     spacing: 8px;
                     Text { text: "Couleur"; color: Theme.text; vertical-alignment: center; }
@@ -1856,6 +1878,8 @@ export component AppWindow inherits Window {
                         text: "Ajouter";
                         primary: true;
                         clicked => {
+                            root.pages-message = root.pages-error(w-pages.text);
+                            if root.pages-message != "" { return; }
                             watermark-popup.close();
                             root.watermark-run(w-text.text, w-size.value, w-opacity.value, w-angle.value, w-pages.text, root.watermark-color);
                         }
@@ -2065,9 +2089,9 @@ export component AppWindow inherits Window {
     }
 
     ocr-popup := PopupWindow {
-        x: (root.width - 440px) / 2;
-        y: (root.height - 300px) / 2;
-        width: 440px;
+        x: (root.width - 540px) / 2;
+        y: (root.height - 320px) / 2;
+        width: 540px;
         close-policy: no-auto-close;
         Rectangle {
             background: Theme.layer;
@@ -2080,28 +2104,39 @@ export component AppWindow inherits Window {
                 padding: 20px;
                 spacing: 10px;
                 Text { text: "Reconnaître le texte (OCR)"; font-size: 16px; font-weight: 600; color: Theme.text; }
-                Text { text: "Le texte des pages scannées devient cherchable, sélectionnable et copiable ; l'aspect des pages ne change pas."; color: Theme.text2; wrap: word-wrap; }
+                Text { text: "Ajoute aux pages scannées un texte invisible, aligné sur l'image : recherche, sélection et copie deviennent possibles. L'aspect des pages ne change pas."; color: Theme.text2; wrap: word-wrap; }
+                if root.ocr-signed: Text { text: "Ce document est signé : la signature restera valide, mais le texte ajouté sera signalé comme une modification postérieure."; color: Theme.text2; wrap: word-wrap; }
                 GridLayout {
                     spacing: 8px;
                     Row {
-                        Text { text: "Langue du document"; color: Theme.text; vertical-alignment: center; }
+                        Text { text: "Langue du document :"; color: Theme.text; vertical-alignment: center; }
                         o-lang := ComboBox { model: ["Français et anglais", "Français", "Anglais"]; current-index: 0; }
                     }
                     Row {
-                        Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
-                        o-pages := LineEdit { placeholder-text: "toutes (ou 1-5)"; }
+                        Text { text: "Pages :"; color: Theme.text; vertical-alignment: center; }
+                        o-pages := LineEdit { placeholder-text: "toutes"; edited => { root.pages-message = ""; } accepted => { root.ocr-go(o-lang.current-index, o-pages.text, o-all.checked, o-dpi.value); } }
                     }
                     Row {
-                        Text { text: "Résolution d'analyse (dpi)"; color: Theme.text; vertical-alignment: center; }
-                        o-dpi := SpinBox { minimum: 150; maximum: 600; step-size: 50; value: 300; }
+                        Rectangle { }
+                        Text { text: root.pages-message != "" ? root.pages-message : "Exemples : 1-3, 5, 8-  (vide = toutes les pages)"; color: root.pages-message != "" ? Theme.accent : Theme.text2; font-size: 12px; wrap: word-wrap; }
+                    }
+                    Row {
+                        o-all := CheckBox { colspan: 2; text: "Aussi les pages qui contiennent déjà du texte (le texte existant serait doublé)"; }
+                    }
+                    Row {
+                        Text { text: "Résolution d'analyse :"; color: Theme.text; vertical-alignment: center; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            o-dpi := SpinBox { minimum: 150; maximum: 600; step-size: 50; value: 300; }
+                            Text { text: "dpi"; color: Theme.text; vertical-alignment: center; }
+                        }
                     }
                 }
-                o-all := CheckBox { text: "Aussi les pages qui contiennent déjà du texte"; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { ocr-popup.close(); } }
-                    Button { text: "Reconnaître"; primary: true; clicked => { ocr-popup.close(); root.ocr-run(o-lang.current-index, o-pages.text, o-all.checked, o-dpi.value); } }
+                    Button { text: "Reconnaître"; primary: true; clicked => { root.ocr-go(o-lang.current-index, o-pages.text, o-all.checked, o-dpi.value); } }
                 }
             }
         }
@@ -2166,14 +2201,20 @@ export component AppWindow inherits Window {
                     }
                     Row {
                         Text { text: "Pages"; color: Theme.text; vertical-alignment: center; }
-                        i-pages := LineEdit { placeholder-text: "toutes (ou 1-3, 5)"; }
+                        i-pages := LineEdit { placeholder-text: "toutes (ou 1-3, 5)"; edited => { root.pages-message = ""; } }
                     }
                 }
+                if root.pages-message != "": Text { text: root.pages-message; color: Theme.accent; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { images-popup.close(); } }
-                    Button { text: "Exporter…"; primary: true; clicked => { images-popup.close(); root.export-images-run(i-format.current-index == 1, i-dpi.value, i-pages.text); } }
+                    Button { text: "Exporter…"; primary: true; clicked => {
+                        root.pages-message = root.pages-error(i-pages.text);
+                        if root.pages-message != "" { return; }
+                        images-popup.close();
+                        root.export-images-run(i-format.current-index == 1, i-dpi.value, i-pages.text);
+                    } }
                 }
             }
         }

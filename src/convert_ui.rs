@@ -312,7 +312,7 @@ impl App {
                 from_engine(move |app| {
                     app.ocr_cancel = None;
                     if n == 0 {
-                        return app.toast("Ces pages contiennent déjà du texte (cochez « Aussi les pages avec du texte » pour les traiter).");
+                        return app.toast("Ces pages contiennent déjà du texte (cochez « Aussi les pages qui contiennent déjà du texte » pour les traiter).");
                     }
                     let keep = app.tabs.iter().find(|t| t.id == id).map(|t| t.selected.clone()).unwrap_or_default();
                     app.edit_doc(id, move |pdf| {

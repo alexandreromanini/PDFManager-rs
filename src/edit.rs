@@ -17,7 +17,8 @@ fn err(e: impl std::fmt::Display) -> String {
 
 /// « 1-3, 5, 8- » → groupes de pages (0-based). Vide = toutes les pages.
 pub fn parse_ranges(spec: &str, count: usize) -> Result<Vec<Vec<usize>>, String> {
-    if spec.trim().is_empty() {
+    // vide ou « toutes » (l'indication grisée des champs) : tout le document
+    if spec.trim().is_empty() || ["toutes", "tout", "all"].contains(&spec.trim().to_lowercase().as_str()) {
         return Ok(vec![(0..count).collect()]);
     }
     let mut groups = vec![];
@@ -296,6 +297,7 @@ mod tests {
     fn ranges() {
         assert_eq!(parse_pages("1-2, 5, 4-", 6).unwrap(), vec![0, 1, 3, 4, 5]);
         assert_eq!(parse_pages("", 3).unwrap(), vec![0, 1, 2]);
+        assert_eq!(parse_pages(" Toutes ", 3).unwrap(), vec![0, 1, 2]);
         assert!(parse_pages("0", 3).is_err() && parse_pages("2-9", 3).is_err() && parse_pages("a", 3).is_err());
         assert_eq!(format_pages(&[0, 1, 2, 4]), "1-3, 5");
         assert_eq!(reorder(4, &[0], 3), vec![1, 2, 0, 3]);

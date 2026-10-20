@@ -474,10 +474,11 @@ impl App {
             let result = (|| {
                 let mut sources = vec![];
                 for (path, id) in files.iter().zip(open) {
-                    sources.push(match id.and_then(|id| docs.get(&id)) {
+                    let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    sources.push((title, match id.and_then(|id| docs.get(&id)) {
                         Some(pdf) => pdf.plain_bytes()?,
                         None => plain_from_file(path)?,
-                    });
+                    }));
                 }
                 let data = edit::merge(&sources)?;
                 write_atomic(&target, &data).map_err(|e| write_error(&target, &e))
@@ -489,13 +490,16 @@ impl App {
         });
     }
 
-    pub fn split_run(&mut self, every: bool, n: usize, ranges: String) {
+    /// Scinder : `mode` 0 selon des plages, 1 toutes les `n` pages, 2 selon les signets de
+    /// premier niveau (un fichier par signet, nommé d'après lui).
+    pub fn split_run(&mut self, mode: i32, n: usize, ranges: String) {
         let Some(tab) = self.current_tab() else { return };
         let count = tab.sizes.len();
-        let groups = if every { Ok(edit::split_every(count, n)) } else if ranges.trim().is_empty() {
-            Err("Indiquez les plages, par exemple : 1-3, 4-10, 11-".to_string())
-        } else {
-            edit::parse_ranges(&ranges, count)
+        let groups: Result<Vec<(Option<String>, Vec<usize>)>, String> = match mode {
+            1 => Ok(edit::split_every(count, n).into_iter().map(|g| (None, g)).collect()),
+            2 => edit::split_by_bookmarks(&tab.bookmarks, count).map(|g| g.into_iter().map(|(t, p)| (Some(t), p)).collect()),
+            _ if ranges.trim().is_empty() => Err("Indiquez les plages, par exemple : 1-3, 4-10, 11-".to_string()),
+            _ => edit::parse_ranges(&ranges, count).map(|g| g.into_iter().map(|p| (None, p)).collect()),
         };
         let groups = match groups {
             Ok(g) => g,
@@ -503,8 +507,14 @@ impl App {
         };
         let Some(folder) = crate::dialogs::pick_folder("Dossier de destination", tab.path.parent()) else { return };
         let stem = tab.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let targets: Vec<PathBuf> = groups.iter()
-            .map(|g| folder.join(format!("{stem} - pages {}.pdf", edit::format_pages(g))))
+        let targets: Vec<PathBuf> = groups.iter().enumerate()
+            .map(|(k, (title, g))| folder.join(match title {
+                // « Rapport - 01 - Introduction.pdf » (caractères interdits dans un nom remplacés)
+                Some(t) => format!("{stem} - {:02} - {}.pdf", k + 1,
+                                   t.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c })
+                                       .collect::<String>().trim().chars().take(80).collect::<String>()),
+                None => format!("{stem} - pages {}.pdf", edit::format_pages(g)),
+            }))
             .collect();
         let existing = targets.iter().filter(|t| t.exists()).count();
         if existing > 0 && !ask("Scinder", &format!("{existing} fichier(s) existe(nt) déjà dans ce dossier. Les remplacer ?")) {
@@ -514,7 +524,7 @@ impl App {
         self.engine.run(move |docs| {
             let result = (|| {
                 let pdf = docs.get(&id).ok_or("document fermé")?;
-                for (g, t) in groups.iter().zip(&targets) {
+                for ((_, g), t) in groups.iter().zip(&targets) {
                     let data = edit::extract(pdf, g)?;
                     write_atomic(t, &data).map_err(|e| write_error(t, &e))?;
                 }

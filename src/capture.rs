@@ -98,8 +98,9 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
             "close" => app::with_app(move |a| a.request_close_tab(arg.parse().unwrap_or(0))),
             "quit" => app::with_app(|a| a.quit()),
             "merge" => app::with_app(move |a| a.merge_command(&arg)),
-            "split" => app::with_app(move |a| a.split_run(false, 1, arg)),
-            "split-every" => app::with_app(move |a| a.split_run(true, arg.parse().unwrap_or(1), String::new())),
+            "split" => app::with_app(move |a| a.split_run(0, 1, arg)),
+            "split-every" => app::with_app(move |a| a.split_run(1, arg.parse().unwrap_or(1), String::new())),
+            "split-bookmarks" => app::with_app(|a| a.split_run(2, 1, String::new())),
             // protect:ouverture,propriétaire,imprimer,copier,commenter,modifier (1/0)
             "protect" => {
                 let v: Vec<String> = arg.split(',').map(String::from).collect();

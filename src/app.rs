@@ -1208,7 +1208,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_thumb_drag(|i, y, h| with_app(move |app| app.thumb_drag(i.max(0) as usize, y, h)));
     ui.on_thumb_release(|| with_app(App::thumb_release));
     ui.on_merge_command(|c| with_app(move |app| app.merge_command(c.as_str())));
-    ui.on_split_run(|every, n, ranges| with_app(move |app| app.split_run(every, n.max(1) as usize, ranges.to_string())));
+    ui.on_split_run(|mode, n, ranges| with_app(move |app| app.split_run(mode, n.max(1) as usize, ranges.to_string())));
     ui.window().on_close_requested(|| {
         // Modifications non enregistrées : on demande d'abord (la fenêtre reste ouverte).
         let unsaved = APP.with(|c| c.try_borrow().map(|a| a.as_ref().is_some_and(App::has_unsaved)).unwrap_or(true));

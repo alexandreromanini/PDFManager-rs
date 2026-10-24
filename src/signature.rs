@@ -987,7 +987,7 @@ mod tests {
             let st = verify(&again, None, &ca()).unwrap();
             assert_eq!(st.len(), 2);
             assert!(st.iter().all(|s| s.intact), "{st:?}");
-            std::fs::write(format!("/tmp/claude-1000/signe-{f}.pdf"), &again).ok();
+            std::fs::write(std::env::temp_dir().join(format!("signe-{f}.pdf")), &again).ok();
         }
     }
 
@@ -1021,6 +1021,6 @@ mod tests {
         let st = verify(&signed, None, &ca()).unwrap();
         eprintln!("{:?}", st[0].details());
         assert!(st[0].intact && st[0].timestamped, "{:?}", st[0]);
-        std::fs::write("/tmp/claude-1000/signe-horodate.pdf", &signed).unwrap();
+        std::fs::write(std::env::temp_dir().join("signe-horodate.pdf"), &signed).unwrap();
     }
 }

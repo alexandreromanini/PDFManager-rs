@@ -1,186 +1,125 @@
-# PDFManager (Rust)
+<div align="center">
 
-Réécriture en Rust de [PDFManager](https://github.com/alexandreromanini/PDFManager) (Python),
-pour une application plus légère : installeur plus petit, démarrage instantané, moins de
-mémoire. La version Python reste la référence tant que celle-ci ne couvre pas les mêmes
-usages.
+<img src="resources/logo/pdfmanager.svg" width="88" alt="PDFManager logo">
 
-- Moteur PDF : [MuPDF](https://mupdf.com) via le crate `mupdf` (le même moteur que PyMuPDF).
-- Interface : [Slint](https://slint.dev).
-- Cible : Windows 11 64 bits ; développement sous Linux.
+# PDFManager
 
-## État
+**A free, offline PDF editor for Windows, written in Rust.**<br>
+Edit, annotate, sign, OCR, translate and compress PDFs: no account, no watermark, no subscription.
 
-| Phase | Contenu | État |
+[![Latest release](https://img.shields.io/github/v/release/alexandreromanini/PDFManager-rs?label=release&color=d93a2b)](https://github.com/alexandreromanini/PDFManager-rs/releases/latest)
+[![Build](https://github.com/alexandreromanini/PDFManager-rs/actions/workflows/build-windows.yml/badge.svg)](https://github.com/alexandreromanini/PDFManager-rs/actions/workflows/build-windows.yml)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)](#download)
+[![Rust](https://img.shields.io/badge/rust-Slint%20%2B%20MuPDF-B7410E)](docs/DEVELOPMENT.md)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+
+[**Download for Windows**](https://github.com/alexandreromanini/PDFManager-rs/releases/latest) ·
+[Features](#features) ·
+[Screenshots](#screenshots) ·
+[All features](docs/FEATURES.md) ·
+[Français](README.fr.md)
+
+<img src="docs/images/screenshot.png" width="900" alt="PDFManager showing an annotated report, with the comment tools on the left and page thumbnails on the right">
+
+</div>
+
+## Why PDFManager?
+
+- **Everything a PDF editor should do, in one app**: the everyday features of Acrobat Pro
+  (editing, comments, forms, signatures, OCR, conversions), free and open source.
+- **Light and fast**: a 16 MB installer, instant start, built on [MuPDF](https://mupdf.com),
+  the engine behind many PDF readers.
+- **Private by design**: your documents are processed on your computer. Nothing is uploaded,
+  except the text you choose to translate with DeepL.
+- **Modern Windows 11 look**, light and dark themes, tabs, drag and drop, keyboard shortcuts.
+- **Safe editing**: every change can be undone, files are saved atomically, signed documents
+  are saved incrementally so that their signatures stay valid.
+
+> The interface is in French. An English interface is not available yet.
+
+## Features
+
+| | |
+|---|---|
+| **View and organize** | Tabs, thumbnails, bookmarks, search, continuous, single or two-page view, presentation mode. Reorder, rotate, delete, extract, crop and insert pages; merge and split PDFs. |
+| **Edit** | Edit existing text in place (keeps the original font when possible), add text, images and links, move and resize images, headers, footers, page numbers and watermarks. True redaction that really removes the content. |
+| **Comment** | Highlight, underline, strike out, sticky notes, free text, shapes, freehand drawing and stamps, with a list of all comments. |
+| **Forms** | Fill in forms, and create text fields, checkboxes, lists and signature fields. |
+| **Sign and protect** | Handwritten signature, digital signatures (PAdES, with RFC 3161 timestamp) and signature verification; AES-256 password protection and permissions; printing. |
+| **Convert and optimize** | OCR (French and English, built in, multi-core), file size reduction, PDF to Word (with tables), images or text, images and Office documents to PDF, PDF/A archiving, comparison of two PDFs. |
+| **Translate** | Translate a whole document with DeepL while keeping its layout: each paragraph and table cell is rewritten in place. 28 languages. |
+| **AI assistant** | Summarize a document and ask questions about it, with a small model that runs **offline** on your computer (optional 2.5 GB download). |
+
+Every feature, with its known limits, is described in [docs/FEATURES.md](docs/FEATURES.md) (French).
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="docs/images/dark.png" alt="Dark theme"></td>
+    <td><img src="docs/images/home.png" alt="Home screen with recent files"></td>
+  </tr>
+  <tr>
+    <td align="center">Dark theme</td>
+    <td align="center">Home screen and full tools catalog</td>
+  </tr>
+</table>
+
+<p align="center"><img src="docs/images/translate.png" width="480" alt="Translate dialog"><br>Translating a document with DeepL</p>
+
+## Download
+
+1. Download **`PDFManager-rs-x.y.z-setup.exe`** from the
+   [latest release](https://github.com/alexandreromanini/PDFManager-rs/releases/latest).
+2. Run it. Windows may show *“Windows protected your PC”* because the installer is not
+   code-signed: click **More info**, then **Run anyway**.
+3. PDFManager checks for new versions and updates itself in one click.
+
+Requirements: Windows 10 or 11, 64-bit. It installs as *PDFManager (Rust)* and can live next to
+the Python edition. Optional: [Ghostscript](https://ghostscript.com/releases/gsdnld.html) for
+PDF/A, [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) to convert Office
+documents.
+
+### Two editions
+
+PDFManager exists in two editions with the same features and the same look:
+
+| | PDFManager-rs (this repository) | [PDFManager](https://github.com/alexandreromanini/PDFManager) |
 |---|---|---|
-| 0 | Essai : ouvrir un PDF, faire défiler ses pages, build Windows | ✅ |
-| 1 | Lecteur complet (voir ci-dessous) | ✅ 0.1.0 |
-| 2 | Enregistrer, annuler/rétablir, organiser les pages | ✅ 0.2.0 |
-| 3 | Commentaires, ajouter du texte et des images, en-têtes, numérotation, filigrane | ✅ 0.3.0 |
-| 4 | Formulaires, protection, impression, mises à jour | ✅ 0.4.0 |
-| 5 | Modifier le texte existant, caviardage | ✅ 0.5.0 |
-| 6 | OCR, assistant IA, conversions | ✅ 0.6.0 |
-| 7 | Signatures, comparaison | ✅ 0.7.0 |
-| Audit | Tests de bout en bout, 23 corrections (voir [AUDIT.md](AUDIT.md)) | ✅ 0.7.1 |
-| Parité | Toutes les fonctions de la version Python (voir [COMPARAISON.md](COMPARAISON.md)) | ✅ 0.8.0 |
-| Traduction | Traduire le document avec DeepL, même mise en page (aussi dans la version Python) | ✅ 0.9.0 |
+| Written in | Rust, Slint, MuPDF | Python 3.12, PySide6 (Qt), PyMuPDF |
+| Installer | ~16 MB | ~100 MB |
+| Best for | Everyday use: faster start, smaller | Hacking on the code in Python |
 
-## Fonctions (phase 1)
+The detailed comparison is in [docs/COMPARAISON.md](docs/COMPARAISON.md) (French).
 
-- Accueil : ouvrir (dialogue ou glisser-déposer), fichiers récents.
-- Onglets, une seule fenêtre : un PDF ouvert depuis l'Explorateur arrive en onglet.
-- Vue fluide : rendu en arrière-plan (thread moteur), seules les pages visibles sont
-  dessinées ; modes continu, page unique, double page ; zoom (Ctrl+molette, Ctrl+/-),
-  ajuster à la largeur (Ctrl+2) ou à la page (Ctrl+0) ; pivoter l'affichage (menu).
-- Rail de droite : vignettes (rendues à la demande), signets.
-- Recherche (Ctrl+F, F3 / Maj+F3), surlignage, compteur « 3 / 12 ».
-- Au clavier : Tab parcourt boutons et outils (anneau de focus), Entrée ou Espace active.
-- Fenêtre étroite (sous 1000 px) : catalogue d'outils en colonne d'icônes, barre du document
-  allégée, Enregistrer et le menu toujours visibles.
-- Sélection du texte à la souris, Ctrl+C.
-- Liens : vers une page, ou web / e-mail après confirmation (les autres sont refusés).
-- Mots de passe (3 essais), thème clair / sombre / système, plein écran (F11),
-  panneau latéral (F4).
-- Réglages et journal : `%APPDATA%\PDFManager-rs`.
+## Privacy
 
-## Fonctions (phase 2)
+PDFManager works offline. It only goes online to:
 
-- Enregistrer (Ctrl+S, confirmation la première fois : le fichier d'origine est remplacé),
-  Enregistrer sous (Ctrl+Maj+S), Enregistrer une copie ; écriture atomique ; avertissement
-  pour un document signé.
-- Annuler / Rétablir (Ctrl+Z / Ctrl+Y) pour chaque modification, 30 étapes.
-- Panneau « Organiser les pages » : pivoter, supprimer, extraire, insérer (page vierge, PDF,
-  images), recadrer (tracer la zone à garder), annuler le recadrage, fusionner, scinder.
-- Vignettes : sélection multiple (Ctrl+clic, Maj+clic), glisser pour déplacer des pages,
-  Suppr pour supprimer.
-- Fermer un onglet ou quitter avec des modifications : Enregistrer / Ne pas enregistrer /
-  Annuler.
+- check for updates on GitHub;
+- translate, when you use **Traduire le document** (the text is sent to DeepL);
+- download the AI model, once, if you choose to enable the assistant.
 
-## Fonctions (phase 3)
-
-- Panneau « Commenter » : surligner, souligner, barrer (sur le texte sélectionné), note,
-  texte libre, rectangle, ellipse, ligne, flèche, dessin à main levée, tampon ; 6 couleurs,
-  épaisseur des traits, nom de l'auteur.
-- Avec l'outil Sélection : cliquer un commentaire le sélectionne, le glisser le déplace,
-  double-clic pour modifier son texte, Suppr pour le supprimer.
-- Liste des commentaires dans le rail de droite (page, auteur, date, texte) : clic pour y
-  aller, double-clic pour modifier, corbeille pour supprimer.
-- Panneau « Modifier » : ajouter du texte directement sur la page (taille, couleur ;
-  modifiable ensuite), ajouter une image (cadre tracé à la souris).
-- En-tête, pied de page et numérotation ({n}, {total}, {date}, {fichier}) et filigrane
-  (taille, opacité, inclinaison), sur toutes les pages ou une plage.
-- Tout est annulable (Ctrl+Z), et reste droit et bien placé sur les pages pivotées.
-
-## Fonctions (phase 4)
-
-- Formulaires : les champs sont surlignés en bleu ; cliquer un champ texte pour écrire
-  dedans (Entrée valide), une case pour la cocher, une liste pour choisir. Panneau
-  « Formulaires » pour créer des champs (texte, case à cocher, liste déroulante, signature)
-  ou en supprimer.
-- Protéger par mot de passe (AES-256) : mot de passe d'ouverture, mot de passe des
-  permissions, choix des permissions (imprimer, copier, commenter, modifier). Retirer la
-  protection (mot de passe des permissions demandé si besoin).
-- Propriétés du document (Ctrl+D) : titre, auteur, sujet, mots-clés…
-- Imprimer (Ctrl+P), avec la fenêtre d'impression de Windows : pages ajustées au papier et
-  tournées si besoin ; refusé si l'auteur du document l'interdit.
-- Mises à jour : vérification discrète au démarrage, ou menu « Rechercher des mises à
-  jour… » ; l'installeur est téléchargé, vérifié (taille, empreinte SHA-256) puis installé
-  sans assistant, et l'application se relance.
-- `vendor/mupdf` : bibliothèque MuPDF (Rust) avec un correctif, voir `CORRECTIF.md`.
-
-## Fonctions (phase 5)
-
-- Modifier le texte d'origine : outil « Modifier le texte » (panneau Modifier), cliquer un
-  paragraphe et le corriger sur la page. Seules les lignes changées sont réécrites, à la même
-  place, même taille, même couleur, dans la police d'origine si elle contient les caractères,
-  sinon la même police installée sur l'ordinateur (réduite aux caractères utilisés), sinon la
-  plus proche (Arial, Times New Roman, Courier New, puis Helvetica / Times / Courier) ; le
-  résultat est relu, et l'utilisateur est prévenu de tout remplacement ou débordement.
-- Caviardage : tracer des zones, ou marquer toutes les occurrences d'un texte ; les marques
-  restent réversibles (liste des commentaires, Suppr) jusqu'à « Appliquer les caviardages »,
-  qui supprime vraiment texte, images, tracés, commentaires et champs couverts.
-- Nettoyer le document : métadonnées, JavaScript et actions automatiques, pièces jointes,
-  vignettes intégrées.
-
-## Fonctions (phase 6)
-
-- Reconnaître le texte (OCR) : Tesseract intégré à MuPDF, modèles français et anglais
-  livrés (`resources/tessdata`, licence Apache 2.0) ; le texte reconnu est posé, invisible,
-  sur les pages scannées (recherche, sélection, copie) ; Échap arrête.
-- Réduire la taille (copie) : sans perte, ou photos JPEG ramenées à 150 / 96 dpi.
-- Convertir : PDF vers Word (.docx, par MuPDF), images (PNG, JPEG), texte ; images et
-  documents Office (LibreOffice, s'il est installé) vers PDF.
-- Archiver en PDF/A-2b avec Ghostscript, s'il est installé.
-- Assistant IA hors ligne (rail de droite) : résumé et questions sur le document, pages
-  citées cliquables. Qwen3 4B Instruct par llama.cpp, sur le processeur ; le modèle (2,5 Go)
-  est partagé avec la version Python, téléchargé par l'installeur (case à cocher) ou depuis
-  l'application, taille et empreinte vérifiées.
-
-## Fonctions (phase 7)
-
-- Signature manuscrite : dessinée à la souris, tapée (police manuscrite) ou importée (scan,
-  photo, fond rendu transparent), enregistrée pour être réutilisée, placée sur la page.
-- Signature numérique PAdES (ETSI.CAdES.detached) avec un certificat .pfx / .p12 (RSA,
-  ECDSA P-256 / P-384 ; chiffrements 3DES, RC2 et AES-256 des fichiers), apparence visible
-  (texte, image de signature), horodatage RFC 3161. Ajoutée au fichier sans toucher aux
-  signatures précédentes. Écrit avec les bibliothèques RustCrypto ; contre-vérifié avec
-  pyHanko (signatures, horodatage).
-- Vérification (rail de droite) : intégrité, signataire, chaîne jusqu'aux autorités du
-  système ou aux certificats approuvés, horodatage, mises à jour ajoutées depuis ; « Faire
-  confiance au certificat », « Voir la version signée ».
-- Un document signé reste modifiable (commentaires, formulaires) : les modifications sont
-  enregistrées en ajout, les signatures restent valides.
-- Comparer deux PDF, mot à mot sur tout le document : différences listées dans le rail de
-  droite et surlignées dans les deux documents.
-
-## Fonctions ajoutées (parité avec la version Python)
-
-- Modifier : **Modifier les images** (cliquer, glisser, poignée pour agrandir, Suppr) ;
-  **Lien** (tracer la zone : adresse web, e-mail ou numéro de page ; un clic sur un lien
-  existant propose de le supprimer) ; poignée pour élargir un texte ajouté.
-- Affichage : outil **Main** (H ; V pour revenir à la sélection), **présentation** (F5),
-  rotation de la vue au clavier (Ctrl+Maj+- / Ctrl+Maj++).
-- Couleurs : « Autre couleur… » (code #RRGGBB), couleur et épaisseur mémorisées par outil,
-  couleur du filigrane ; marge de l'en-tête et du pied de page.
-- Pages : PDF et images déposés insérés quand « Organiser les pages » est ouvert ; fusion
-  avec un signet par fichier ; scission selon les signets.
-- Formulaires : nom demandé à la création ; Tab / Maj+Tab d'un champ texte à l'autre.
-- Nettoyer : texte invisible (couche OCR), liens, valeurs des champs (au choix).
-- OCR en parallèle et résolution d'analyse réglable ; export Word avec tableaux ; réduction
-  des photos ; PDF/A conforme (OutputIntent sRGB).
-- Signature manuscrite : fond transparent et mémorisation au choix.
-- **Traduire le document** (0.9.0) : copie traduite par DeepL (clé gratuite : 500 000
-  caractères par mois), même mise en page. Chaque paragraphe ou cellule est remplacé à sa
-  place, même police (installée) ou la plus proche, même couleur ; plus long, il est réduit
-  jusqu'à 70 %, puis déborde vers le bas (signalé). Nombres et dates ne partent pas.
-  28 langues à alphabet latin, grec ou cyrillique (pas de chinois, japonais, coréen, arabe ni
-  hébreu). Limites : texte incliné ou scanné (couche OCR) laissé tel quel, paragraphes
-  justifiés réécrits alignés à gauche. Échap arrête.
-- Recherche d'outil dans le catalogue ; menu : « Annuler « … » », outils externes détectés,
-  dossier des journaux ; fichier endommagé signalé ; « Effacer la liste » des récents.
-
-## Installation
-
-Installeur `PDFManager-rs-<version>-setup.exe` (onglet Actions du dépôt, artefact
-`PDFManager-rs-setup`). S'installe sous le nom « PDFManager (Rust) », à côté de la version
-Python, sans la remplacer.
-
-## Développement (Linux)
+## Build from source
 
 ```bash
-cargo run --release -- fichier.pdf
-cargo test --release
-# Captures d'écran hors écran (développement) :
-cargo run --release --features capture -- --capture sortie.ppm 1280 820 light fichier.pdf -- search:mot
-# Parcours de bout en bout (154 scénarios, l'appli pilotée hors écran ; pip install pymupdf) :
-cargo build --release --features capture && python tests/parcours.py
+cargo run --release -- document.pdf      # run
+cargo test --release                     # unit tests
+cargo build --release --features capture && python tests/parcours.py   # end-to-end scenarios
 ```
 
-Si la compilation de `mupdf-sys` échoue sur « 'stddef.h' file not found » (en-têtes de clang
-absents) : `export BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/13/include`, ou
-installer `libclang-common-18-dev`.
+The Windows installer is built by GitHub Actions on every tag. See
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) (French) for the setup and the project layout.
 
-## Licence
+## Contributing
 
-AGPL-3.0-or-later (MuPDF est sous AGPL). Interface réalisée avec Slint. Profil `resources/sRGB.icc`
-(OutputIntent des PDF/A) : celui de pikepdf, produit par lcms, « no copyright, use freely ».
+Bug reports, ideas and pull requests are welcome, in English or French. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) first. To report a security issue, see [SECURITY.md](SECURITY.md).
+
+## License
+
+PDFManager is free software, released under the [GNU AGPL v3.0 or later](LICENSE).
+
+Built with [MuPDF](https://mupdf.com) (through the [mupdf](https://crates.io/crates/mupdf) crate),
+[Slint](https://slint.dev), [Tesseract](https://github.com/tesseract-ocr/tesseract),
+[llama.cpp](https://github.com/ggml-org/llama.cpp) and [Lucide](https://lucide.dev) icons.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/alexandreromanini/PDFManager-rs/security/advisories/new
+    about: Please report security issues privately.
+  - name: User guide (French)
+    url: https://github.com/alexandreromanini/PDFManager-rs/blob/main/docs/GUIDE.md
+    about: Every feature and its known limits.

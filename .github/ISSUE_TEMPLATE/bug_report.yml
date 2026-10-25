@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. You can write in English or French.
+        Please never attach a confidential document.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Menu ⋯ → Aide → À propos, or the name of the installer.
+      placeholder: "e.g. 1.2.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows
+      options: ["Windows 11", "Windows 10", "Other"]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a PDF with…
+        2. Click on…
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Screenshots, sample PDF, log
+      description: |
+        Drag files here. The log is in the logs folder (menu ⋯ → Aide → Ouvrir le dossier des
+        journaux): attach `pdfmanager.log` if the application crashed.

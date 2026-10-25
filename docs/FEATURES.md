@@ -1,0 +1,139 @@
+# Fonctions en détail
+
+Toutes les fonctions de PDFManager-rs, dans l'ordre où elles ont été construites (l'application
+est en français). Retour à l'[accueil du projet](../README.fr.md) ; historique des versions :
+[CHANGELOG.md](../CHANGELOG.md).
+
+## Fonctions (phase 1)
+
+- Accueil : ouvrir (dialogue ou glisser-déposer), fichiers récents.
+- Onglets, une seule fenêtre : un PDF ouvert depuis l'Explorateur arrive en onglet.
+- Vue fluide : rendu en arrière-plan (thread moteur), seules les pages visibles sont
+  dessinées ; modes continu, page unique, double page ; zoom (Ctrl+molette, Ctrl+/-),
+  ajuster à la largeur (Ctrl+2) ou à la page (Ctrl+0) ; pivoter l'affichage (menu).
+- Rail de droite : vignettes (rendues à la demande), signets.
+- Recherche (Ctrl+F, F3 / Maj+F3), surlignage, compteur « 3 / 12 ».
+- Au clavier : Tab parcourt boutons et outils (anneau de focus), Entrée ou Espace active.
+- Fenêtre étroite (sous 1000 px) : catalogue d'outils en colonne d'icônes, barre du document
+  allégée, Enregistrer et le menu toujours visibles.
+- Sélection du texte à la souris, Ctrl+C.
+- Liens : vers une page, ou web / e-mail après confirmation (les autres sont refusés).
+- Mots de passe (3 essais), thème clair / sombre / système, plein écran (F11),
+  panneau latéral (F4).
+- Réglages et journal : `%APPDATA%\PDFManager-rs`.
+
+## Fonctions (phase 2)
+
+- Enregistrer (Ctrl+S, confirmation la première fois : le fichier d'origine est remplacé),
+  Enregistrer sous (Ctrl+Maj+S), Enregistrer une copie ; écriture atomique ; avertissement
+  pour un document signé.
+- Annuler / Rétablir (Ctrl+Z / Ctrl+Y) pour chaque modification, 30 étapes.
+- Panneau « Organiser les pages » : pivoter, supprimer, extraire, insérer (page vierge, PDF,
+  images), recadrer (tracer la zone à garder), annuler le recadrage, fusionner, scinder.
+- Vignettes : sélection multiple (Ctrl+clic, Maj+clic), glisser pour déplacer des pages,
+  Suppr pour supprimer.
+- Fermer un onglet ou quitter avec des modifications : Enregistrer / Ne pas enregistrer /
+  Annuler.
+
+## Fonctions (phase 3)
+
+- Panneau « Commenter » : surligner, souligner, barrer (sur le texte sélectionné), note,
+  texte libre, rectangle, ellipse, ligne, flèche, dessin à main levée, tampon ; 6 couleurs,
+  épaisseur des traits, nom de l'auteur.
+- Avec l'outil Sélection : cliquer un commentaire le sélectionne, le glisser le déplace,
+  double-clic pour modifier son texte, Suppr pour le supprimer.
+- Liste des commentaires dans le rail de droite (page, auteur, date, texte) : clic pour y
+  aller, double-clic pour modifier, corbeille pour supprimer.
+- Panneau « Modifier » : ajouter du texte directement sur la page (taille, couleur ;
+  modifiable ensuite), ajouter une image (cadre tracé à la souris).
+- En-tête, pied de page et numérotation ({n}, {total}, {date}, {fichier}) et filigrane
+  (taille, opacité, inclinaison), sur toutes les pages ou une plage.
+- Tout est annulable (Ctrl+Z), et reste droit et bien placé sur les pages pivotées.
+
+## Fonctions (phase 4)
+
+- Formulaires : les champs sont surlignés en bleu ; cliquer un champ texte pour écrire
+  dedans (Entrée valide), une case pour la cocher, une liste pour choisir. Panneau
+  « Formulaires » pour créer des champs (texte, case à cocher, liste déroulante, signature)
+  ou en supprimer.
+- Protéger par mot de passe (AES-256) : mot de passe d'ouverture, mot de passe des
+  permissions, choix des permissions (imprimer, copier, commenter, modifier). Retirer la
+  protection (mot de passe des permissions demandé si besoin).
+- Propriétés du document (Ctrl+D) : titre, auteur, sujet, mots-clés…
+- Imprimer (Ctrl+P), avec la fenêtre d'impression de Windows : pages ajustées au papier et
+  tournées si besoin ; refusé si l'auteur du document l'interdit.
+- Mises à jour : vérification discrète au démarrage, ou menu « Rechercher des mises à
+  jour… » ; l'installeur est téléchargé, vérifié (taille, empreinte SHA-256) puis installé
+  sans assistant, et l'application se relance.
+- `vendor/mupdf` : bibliothèque MuPDF (Rust) avec un correctif, voir `CORRECTIF.md`.
+
+## Fonctions (phase 5)
+
+- Modifier le texte d'origine : outil « Modifier le texte » (panneau Modifier), cliquer un
+  paragraphe et le corriger sur la page. Seules les lignes changées sont réécrites, à la même
+  place, même taille, même couleur, dans la police d'origine si elle contient les caractères,
+  sinon la même police installée sur l'ordinateur (réduite aux caractères utilisés), sinon la
+  plus proche (Arial, Times New Roman, Courier New, puis Helvetica / Times / Courier) ; le
+  résultat est relu, et l'utilisateur est prévenu de tout remplacement ou débordement.
+- Caviardage : tracer des zones, ou marquer toutes les occurrences d'un texte ; les marques
+  restent réversibles (liste des commentaires, Suppr) jusqu'à « Appliquer les caviardages »,
+  qui supprime vraiment texte, images, tracés, commentaires et champs couverts.
+- Nettoyer le document : métadonnées, JavaScript et actions automatiques, pièces jointes,
+  vignettes intégrées.
+
+## Fonctions (phase 6)
+
+- Reconnaître le texte (OCR) : Tesseract intégré à MuPDF, modèles français et anglais
+  livrés (`resources/tessdata`, licence Apache 2.0) ; le texte reconnu est posé, invisible,
+  sur les pages scannées (recherche, sélection, copie) ; Échap arrête.
+- Réduire la taille (copie) : sans perte, ou photos JPEG ramenées à 150 / 96 dpi.
+- Convertir : PDF vers Word (.docx, par MuPDF), images (PNG, JPEG), texte ; images et
+  documents Office (LibreOffice, s'il est installé) vers PDF.
+- Archiver en PDF/A-2b avec Ghostscript, s'il est installé.
+- Assistant IA hors ligne (rail de droite) : résumé et questions sur le document, pages
+  citées cliquables. Qwen3 4B Instruct par llama.cpp, sur le processeur ; le modèle (2,5 Go)
+  est partagé avec la version Python, téléchargé par l'installeur (case à cocher) ou depuis
+  l'application, taille et empreinte vérifiées.
+
+## Fonctions (phase 7)
+
+- Signature manuscrite : dessinée à la souris, tapée (police manuscrite) ou importée (scan,
+  photo, fond rendu transparent), enregistrée pour être réutilisée, placée sur la page.
+- Signature numérique PAdES (ETSI.CAdES.detached) avec un certificat .pfx / .p12 (RSA,
+  ECDSA P-256 / P-384 ; chiffrements 3DES, RC2 et AES-256 des fichiers), apparence visible
+  (texte, image de signature), horodatage RFC 3161. Ajoutée au fichier sans toucher aux
+  signatures précédentes. Écrit avec les bibliothèques RustCrypto ; contre-vérifié avec
+  pyHanko (signatures, horodatage).
+- Vérification (rail de droite) : intégrité, signataire, chaîne jusqu'aux autorités du
+  système ou aux certificats approuvés, horodatage, mises à jour ajoutées depuis ; « Faire
+  confiance au certificat », « Voir la version signée ».
+- Un document signé reste modifiable (commentaires, formulaires) : les modifications sont
+  enregistrées en ajout, les signatures restent valides.
+- Comparer deux PDF, mot à mot sur tout le document : différences listées dans le rail de
+  droite et surlignées dans les deux documents.
+
+## Fonctions ajoutées (parité avec la version Python)
+
+- Modifier : **Modifier les images** (cliquer, glisser, poignée pour agrandir, Suppr) ;
+  **Lien** (tracer la zone : adresse web, e-mail ou numéro de page ; un clic sur un lien
+  existant propose de le supprimer) ; poignée pour élargir un texte ajouté.
+- Affichage : outil **Main** (H ; V pour revenir à la sélection), **présentation** (F5),
+  rotation de la vue au clavier (Ctrl+Maj+- / Ctrl+Maj++).
+- Couleurs : « Autre couleur… » (code #RRGGBB), couleur et épaisseur mémorisées par outil,
+  couleur du filigrane ; marge de l'en-tête et du pied de page.
+- Pages : PDF et images déposés insérés quand « Organiser les pages » est ouvert ; fusion
+  avec un signet par fichier ; scission selon les signets.
+- Formulaires : nom demandé à la création ; Tab / Maj+Tab d'un champ texte à l'autre.
+- Nettoyer : texte invisible (couche OCR), liens, valeurs des champs (au choix).
+- OCR en parallèle et résolution d'analyse réglable ; export Word avec tableaux ; réduction
+  des photos ; PDF/A conforme (OutputIntent sRGB).
+- Signature manuscrite : fond transparent et mémorisation au choix.
+- **Traduire le document** (0.9.0) : copie traduite par DeepL (clé gratuite : 500 000
+  caractères par mois), même mise en page. Chaque paragraphe ou cellule est remplacé à sa
+  place, même police (installée) ou la plus proche, même couleur ; plus long, il est réduit
+  jusqu'à 70 %, puis déborde vers le bas (signalé). Nombres et dates ne partent pas.
+  28 langues à alphabet latin, grec ou cyrillique (pas de chinois, japonais, coréen, arabe ni
+  hébreu). Limites : texte incliné ou scanné (couche OCR) laissé tel quel, paragraphes
+  justifiés réécrits alignés à gauche. Échap arrête.
+- Recherche d'outil dans le catalogue ; menu : « Annuler « … » », outils externes détectés,
+  dossier des journaux ; fichier endommagé signalé ; « Effacer la liste » des récents.

@@ -10,6 +10,7 @@ mod assistant;
 mod capture;
 mod compare;
 mod convert;
+mod deepl;
 mod dialogs;
 mod docx;
 mod edit;
@@ -25,6 +26,7 @@ mod security;
 mod settings;
 mod signature;
 mod textedit;
+mod translate;
 mod updates;
 
 use std::io::Write;

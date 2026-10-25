@@ -340,6 +340,10 @@ export component AppWindow inherits Window {
     pure callback pages-error(string) -> string;
     property <string> pages-message;
     property <bool> ocr-signed;
+    callback translate-run(int, string, string, bool);
+    in-out property <int> translate-lang;
+    in-out property <string> deepl-key;
+    in property <[string]> translate-languages;
     public function show-merge() { merge-popup.show(); }
     public function show-split() { root.pages-message = ""; split-popup.show(); }
     public function show-menu() { menu.show(); }
@@ -358,6 +362,14 @@ export component AppWindow inherits Window {
             root.ocr-run(lang, pages, all, dpi);
         }
     }
+    function translate-go(lang: int, pages: string, key: string, remember: bool) {
+        root.pages-message = key == "" ? "Indiquez votre clé DeepL." : root.pages-error(pages);
+        if root.pages-message == "" {
+            translate-popup.close();
+            root.translate-run(lang, pages, key, remember);
+        }
+    }
+    public function show-translate() { root.pages-message = ""; translate-popup.show(); }
     public function show-ocr(signed: bool) { root.ocr-signed = signed; root.pages-message = ""; ocr-popup.show(); }
     public function show-compress() { compress-popup.show(); }
     public function show-images() { root.pages-message = ""; images-popup.show(); }
@@ -405,7 +417,7 @@ export component AppWindow inherits Window {
     in property <string> redo-label;
     callback external-tools();
     // recherche d'outil (catalogue) : lignes et sections affichées
-    in property <[bool]> tool-hits: [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+    in property <[bool]> tool-hits: [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     in property <[bool]> section-hits: [true, true, true, true, true];
     in property <bool> tool-none;
     callback tool-search(string);
@@ -657,14 +669,15 @@ export component AppWindow inherits Window {
                     ToolRow { visible: root.tool-hits[6]; height: !root.tool-hits[6] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "OCR"; icon: Icons.ocr; text: "Reconnaître le texte (OCR)"; enabled: root.tabs.length > 0; clicked => { root.action("ocr"); } }
                     ToolRow { visible: root.tool-hits[7]; height: !root.tool-hits[7] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Réduire"; icon: Icons.shrink; text: "Réduire la taille"; enabled: root.tabs.length > 0; clicked => { root.action("compress"); } }
                     ToolRow { visible: root.tool-hits[8]; height: !root.tool-hits[8] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Convertir"; icon: Icons.convert; text: "Convertir (Word, images, texte)"; clicked => { root.set-panel(5); } }
-                    ToolRow { visible: root.tool-hits[9]; height: !root.tool-hits[9] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Comparer"; icon: Icons.compare; text: "Comparer deux PDF"; enabled: root.tabs.length > 0; clicked => { root.action("compare"); } }
-                    ToolRow { visible: root.tool-hits[10]; height: !root.tool-hits[10] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "PDF/A"; icon: Icons.archive; text: "Archiver (PDF/A)"; enabled: root.tabs.length > 0; clicked => { root.action("pdfa"); } }
+                    ToolRow { visible: root.tool-hits[9]; height: !root.tool-hits[9] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Traduire"; icon: Icons.translate; text: "Traduire le document"; enabled: root.tabs.length > 0; clicked => { root.action("translate"); } }
+                    ToolRow { visible: root.tool-hits[10]; height: !root.tool-hits[10] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Comparer"; icon: Icons.compare; text: "Comparer deux PDF"; enabled: root.tabs.length > 0; clicked => { root.action("compare"); } }
+                    ToolRow { visible: root.tool-hits[11]; height: !root.tool-hits[11] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "PDF/A"; icon: Icons.archive; text: "Archiver (PDF/A)"; enabled: root.tabs.length > 0; clicked => { root.action("pdfa"); } }
                     Section { visible: root.section-hits[3]; text: root.compact-tools ? "" : "Signer et protéger"; height: !root.section-hits[3] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { visible: root.tool-hits[11]; height: !root.tool-hits[11] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Signer"; icon: Icons.signature; text: "Signer"; enabled: root.tabs.length > 0; clicked => { root.set-panel(6); } }
-                    ToolRow { visible: root.tool-hits[12]; height: !root.tool-hits[12] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Protéger"; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
-                    ToolRow { visible: root.tool-hits[13]; height: !root.tool-hits[13] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Déprotéger"; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
+                    ToolRow { visible: root.tool-hits[12]; height: !root.tool-hits[12] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Signer"; icon: Icons.signature; text: "Signer"; enabled: root.tabs.length > 0; clicked => { root.set-panel(6); } }
+                    ToolRow { visible: root.tool-hits[13]; height: !root.tool-hits[13] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Protéger"; icon: Icons.lock; text: "Protéger par mot de passe"; enabled: root.tabs.length > 0; clicked => { root.action("protect"); } }
+                    ToolRow { visible: root.tool-hits[14]; height: !root.tool-hits[14] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Déprotéger"; icon: Icons.unlock; text: "Retirer la protection"; enabled: root.tabs.length > 0; clicked => { root.action("unprotect"); } }
                     Section { visible: root.section-hits[4]; text: root.compact-tools ? "" : "Assistant IA"; height: !root.section-hits[4] ? 0px : root.compact-tools ? 6px : 28px; vertical-alignment: center; }
-                    ToolRow { visible: root.tool-hits[14]; height: !root.tool-hits[14] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Assistant"; icon: Icons.bot; text: "Résumer, poser des questions"; clicked => { root.show-assistant(); } }
+                    ToolRow { visible: root.tool-hits[15]; height: !root.tool-hits[15] ? 0px : root.compact-tools ? 54px : 40px; tile: true; compact: root.compact-tools; short: "Assistant"; icon: Icons.bot; text: "Résumer, poser des questions"; clicked => { root.show-assistant(); } }
                     Rectangle { height: 12px; }
                     Rectangle { height: 4px; }
                     }
@@ -2137,6 +2150,63 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     Button { text: "Annuler"; clicked => { ocr-popup.close(); } }
                     Button { text: "Reconnaître"; primary: true; clicked => { root.ocr-go(o-lang.current-index, o-pages.text, o-all.checked, o-dpi.value); } }
+                }
+            }
+        }
+    }
+
+    translate-popup := PopupWindow {
+        x: (root.width - 540px) / 2;
+        y: (root.height - 360px) / 2;
+        width: 540px;
+        close-policy: no-auto-close;
+        Rectangle {
+            background: Theme.layer;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text { text: "Traduire le document"; font-size: 16px; font-weight: 600; color: Theme.text; }
+                Text { text: "Crée une copie traduite, avec la même mise en page : chaque paragraphe est remplacé à sa place, images et tableaux restent. Le texte est envoyé à DeepL pour être traduit."; color: Theme.text2; wrap: word-wrap; }
+                GridLayout {
+                    spacing: 8px;
+                    Row {
+                        Text { text: "Traduire en :"; color: Theme.text; vertical-alignment: center; }
+                        t-lang := ComboBox { model: root.translate-languages; current-index <=> root.translate-lang; }
+                    }
+                    Row {
+                        Text { text: "Pages :"; color: Theme.text; vertical-alignment: center; }
+                        t-pages := LineEdit { placeholder-text: "toutes"; edited => { root.pages-message = ""; } }
+                    }
+                    Row {
+                        Text { text: "Clé DeepL :"; color: Theme.text; vertical-alignment: center; }
+                        t-key := LineEdit { input-type: password; text <=> root.deepl-key; placeholder-text: "xxxxxxxx-xxxx-…:fx"; edited => { root.pages-message = ""; } }
+                    }
+                    Row {
+                        Rectangle { }
+                        HorizontalLayout {
+                            spacing: 4px;
+                            Text { text: "Pas de clé ?"; color: Theme.text2; font-size: 12px; }
+                            Text {
+                                text: "Obtenir une clé gratuite (500 000 caractères par mois)";
+                                color: Theme.accent;
+                                font-size: 12px;
+                                TouchArea { mouse-cursor: pointer; clicked => { root.action("deepl-key"); } }
+                            }
+                        }
+                    }
+                }
+                t-remember := CheckBox { text: "Mémoriser la clé sur cet ordinateur"; checked: true; }
+                if root.pages-message != "": Text { text: root.pages-message; color: Theme.accent; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    Button { text: "Annuler"; clicked => { translate-popup.close(); } }
+                    Button { text: "Traduire…"; primary: true; clicked => { root.translate-go(t-lang.current-index, t-pages.text, t-key.text, t-remember.checked); } }
                 }
             }
         }

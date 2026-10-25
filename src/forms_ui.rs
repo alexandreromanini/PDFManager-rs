@@ -512,7 +512,7 @@ impl App {
 const SECTIONS: [&str; 5] = ["Organiser", "Modifier", "Convertir et optimiser", "Signer et protéger", "Assistant IA"];
 
 /// Catalogue d'outils, dans l'ordre de l'interface : (section, libellé, mots-clés).
-const CATALOG: [(&str, &str, &str); 15] = [
+const CATALOG: [(&str, &str, &str); 16] = [
     ("Organiser", "Organiser les pages", "pivoter supprimer extraire inserer recadrer deplacer page vierge"),
     ("Organiser", "Fusionner des PDF", "combiner assembler rassembler"),
     ("Organiser", "Scinder un PDF", "separer decouper diviser"),
@@ -522,6 +522,7 @@ const CATALOG: [(&str, &str, &str); 15] = [
     ("Convertir et optimiser", "Reconnaître le texte (OCR)", "scan numerise ocr"),
     ("Convertir et optimiser", "Réduire la taille", "compresser alleger poids"),
     ("Convertir et optimiser", "Convertir (Word, images, texte)", "exporter word docx png jpeg txt creer office"),
+    ("Convertir et optimiser", "Traduire le document", "traduction langue anglais allemand espagnol deepl"),
     ("Convertir et optimiser", "Comparer deux PDF", "differences versions"),
     ("Convertir et optimiser", "Archiver (PDF/A)", "pdfa archivage"),
     ("Signer et protéger", "Signer", "signature certificat numerique manuscrite verifier"),

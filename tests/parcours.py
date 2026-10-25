@@ -594,6 +594,22 @@ def g_poignee():
     check("T1 poignée : texte ajouté élargi de 80 pt, contenu gardé",
           len(anns) == 1 and abs(anns[0][0].x1 - r0.x1 - 80) < 2 and anns[0][1] == "Bonjour tout le monde", str(anns))
 
+def g_traduction():
+    # traducteur factice en mode capture (majuscules) : pas de réseau ni de clé
+    f = fresh("traduire.pdf"); tout = os.path.join(W, "traduire - tout.pdf"); p2 = os.path.join(W, "traduire - p2.pdf")
+    toutes = os.path.join(W, "traduire - toutes.pdf")
+    log, code, dt = run([f], ["translate:", "sleep:3000", "translate:toutes", "sleep:3000", "translate:2", "sleep:3000", "etat"],
+                        picks=[tout, toutes, p2], answers=["non"] * 3)
+    t = [pg.get_text() for pg in pymupdf.open(tout)] if os.path.exists(tout) else []
+    check("TR1 tout le document traduit, mise en page gardée (3 pages)",
+          len(t) == 3 and "BONJOUR PAGE 1" in t[0] and "Bonjour" not in t[0] and "LE RENARD BRUN SAUTE" in t[0], str(t)[:300])
+    check("TR1b « toutes » dans Pages accepté", os.path.exists(toutes) and "BONJOUR PAGE 3" in pymupdf.open(toutes)[2].get_text(), "")
+    t2 = [pg.get_text() for pg in pymupdf.open(p2)] if os.path.exists(p2) else []
+    check("TR2 page 2 seulement", len(t2) == 3 and "BONJOUR PAGE 2" in t2[1] and "Bonjour page 1" in t2[0], str(t2)[:300])
+    e = [x for x in etat(log) if x.startswith("onglet")]
+    check("TR3 document ouvert inchangé, aucune erreur", e and "modifié=false" in e[0] and not lines(log, "ERREUR")
+          and "Bonjour page 1" in pymupdf.open(f)[0].get_text(), str(e) + str(lines(log, "ERREUR")))
+
 groups = {k[2:]: v for k, v in list(globals().items()) if k.startswith("g_")}
 if __name__ == "__main__":
     for g in (sys.argv[1:] or groups):

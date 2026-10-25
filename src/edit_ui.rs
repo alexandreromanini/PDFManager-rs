@@ -108,7 +108,7 @@ impl App {
         let targets = self.targets();
         match name {
             "escape" => {
-                if !self.ocr_stop() {
+                if !self.job_stop() {
                     self.escape();
                 }
             }
@@ -128,6 +128,10 @@ impl App {
                         _ => ui.invoke_show_ocr(self.current_tab().is_some_and(|t| t.signed)),
                     }
                 }
+            }
+            "translate" => self.translate_show(),
+            "deepl-key" => {
+                let _ = open::that(crate::deepl::KEY_URL);
             }
             "editor-commit" => self.editor_commit(),
             "field-next" => self.field_step(true),

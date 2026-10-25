@@ -95,48 +95,59 @@ pub fn text_block_at(pdf: &Pdf, page: usize, x: f32, y: f32) -> Result<Option<Te
         let mut lines = vec![];
         for l in b.lines() {
             let chars: Vec<_> = l.chars().collect();
-            let Some(first) = chars.iter().find(|c| visible(c)) else { continue };
-            let last = chars.iter().rev().find(|c| visible(c)).unwrap();
-            if chars.iter().filter(|c| visible(c)).all(|c| !c.flags().intersects(TextCharFlags::FILLED | TextCharFlags::STROKED)) {
-                return Err("Texte invisible (reconnaissance de caractères d'un scan) : modification prévue avec \
-                            l'OCR, en phase 6.".into());
+            if let Some(line) = line_of(&chars, l.bounds().into()) {
+                lines.push(line?);
             }
-            let (o1, o2) = (first.origin(), last.origin());
-            let len = ((o2.x - o1.x).powi(2) + (o2.y - o1.y).powi(2)).sqrt();
-            let angle = if len < 0.5 {
-                0 // un seul caractère
-            } else {
-                direction((o2.x - o1.x) / len, (o2.y - o1.y) / len).ok_or("Texte incliné : modification non prise en charge.")?
-            };
-            let font = first.font();
-            let name = font.as_ref().map(|f| f.name().to_string()).unwrap_or_default();
-            let style = |c: &TextChar| (c.font().map(|f| f.name().to_string()).unwrap_or_default(),
-                                        (c.size() * 10.0).round() as i32, c.argb() & 0xFFFFFF);
-            let s0 = style(first);
-            let lower = name.to_lowercase();
-            let argb = first.argb();
-            lines.push(Line {
-                rect: l.bounds().into(),
-                origin: (o1.x, o1.y),
-                text: chars.iter().filter_map(|c| c.char()).collect::<String>().trim_end().replace('\u{ad}', "-"),
-                size: first.size(),
-                bold: font.as_ref().is_some_and(|f| f.is_bold()) || first.flags().contains(TextCharFlags::BOLD)
-                    || ["bold", "black", "heavy", "semibold"].iter().any(|k| lower.contains(k)),
-                italic: font.as_ref().is_some_and(|f| f.is_italic()) || lower.contains("italic") || lower.contains("oblique"),
-                serif: font.as_ref().is_some_and(|f| f.is_serif())
-                    || (["times", "serif", "roman", "georgia"].iter().any(|k| lower.contains(k)) && !lower.contains("sans")),
-                mono: font.as_ref().is_some_and(|f| f.is_monospaced()) || lower.contains("courier") || lower.contains("mono"),
-                font: name,
-                color: (((argb >> 16) & 255) as f32 / 255.0, ((argb >> 8) & 255) as f32 / 255.0, (argb & 255) as f32 / 255.0),
-                angle,
-                mixed: chars.iter().filter(|c| visible(c)).any(|c| style(c) != s0),
-            });
         }
         if !lines.is_empty() {
             return Ok(Some(TextBlock { page, rect: br, lines }));
         }
     }
     Ok(None)
+}
+
+/// Ligne (ou morceau de ligne) d'après ses caractères : `None` sans caractère visible ;
+/// erreur si le texte est invisible (couche OCR d'un scan) ou incliné.
+pub(crate) fn line_of(chars: &[TextChar], rect: Rect) -> Option<Result<Line, String>> {
+    let first = chars.iter().find(|c| visible(c))?;
+    let last = chars.iter().rev().find(|c| visible(c)).unwrap();
+    if chars.iter().filter(|c| visible(c)).all(|c| !c.flags().intersects(TextCharFlags::FILLED | TextCharFlags::STROKED)) {
+        return Some(Err("Texte invisible (reconnaissance de caractères d'un scan) : modification prévue avec \
+                         l'OCR, en phase 6.".into()));
+    }
+    let (o1, o2) = (first.origin(), last.origin());
+    let len = ((o2.x - o1.x).powi(2) + (o2.y - o1.y).powi(2)).sqrt();
+    let angle = if len < 0.5 {
+        0 // un seul caractère
+    } else {
+        match direction((o2.x - o1.x) / len, (o2.y - o1.y) / len) {
+            Some(a) => a,
+            None => return Some(Err("Texte incliné : modification non prise en charge.".into())),
+        }
+    };
+    let font = first.font();
+    let name = font.as_ref().map(|f| f.name().to_string()).unwrap_or_default();
+    let style = |c: &TextChar| (c.font().map(|f| f.name().to_string()).unwrap_or_default(),
+                                (c.size() * 10.0).round() as i32, c.argb() & 0xFFFFFF);
+    let s0 = style(first);
+    let lower = name.to_lowercase();
+    let argb = first.argb();
+    Some(Ok(Line {
+        rect,
+        origin: (o1.x, o1.y),
+        text: chars.iter().filter_map(|c| c.char()).collect::<String>().trim_end().replace('\u{ad}', "-"),
+        size: first.size(),
+        bold: font.as_ref().is_some_and(|f| f.is_bold()) || first.flags().contains(TextCharFlags::BOLD)
+            || ["bold", "black", "heavy", "semibold"].iter().any(|k| lower.contains(k)),
+        italic: font.as_ref().is_some_and(|f| f.is_italic()) || lower.contains("italic") || lower.contains("oblique"),
+        serif: font.as_ref().is_some_and(|f| f.is_serif())
+            || (["times", "serif", "roman", "georgia"].iter().any(|k| lower.contains(k)) && !lower.contains("sans")),
+        mono: font.as_ref().is_some_and(|f| f.is_monospaced()) || lower.contains("courier") || lower.contains("mono"),
+        font: name,
+        color: (((argb >> 16) & 255) as f32 / 255.0, ((argb >> 8) & 255) as f32 / 255.0, (argb & 255) as f32 / 255.0),
+        angle,
+        mixed: chars.iter().filter(|c| visible(c)).any(|c| style(c) != s0),
+    }))
 }
 
 /// Police standard la plus proche : (nom MuPDF, libellé).
@@ -293,7 +304,7 @@ fn rewrite(pdf: &mut Pdf, block: &TextBlock, lines: &[String], fontname: &str, f
 
 /// Nom de police unique (« PMAAAB+Calibri ») : MuPDF garde en cache, par nom, une police
 /// déjà insérée ; un autre sous-ensemble de la même police doit donc porter un autre nom.
-fn unique_name(base: &str) -> String {
+pub(crate) fn unique_name(base: &str) -> String {
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let mut n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tag: String = (0..6).map(|_| { let c = (b'A' + (n % 26) as u8) as char; n /= 26; c }).collect();

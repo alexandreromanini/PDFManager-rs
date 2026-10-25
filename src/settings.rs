@@ -28,12 +28,16 @@ pub struct Settings {
     /// Couleur (RVB) et épaisseur de chaque outil de commentaire, reprises à son retour.
     pub tool_colors: std::collections::HashMap<String, u32>,
     pub tool_strokes: std::collections::HashMap<String, i32>,
+    /// Traduction : clé DeepL (si l'utilisateur l'a mémorisée) et dernière langue choisie.
+    pub deepl_key: String,
+    pub translate_lang: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Settings { recent: vec![], theme: "system".into(), sidebar: true, author: String::new(), pfx: String::new(), tsa: String::new(),
-                   tool_colors: Default::default(), tool_strokes: Default::default() }
+                   tool_colors: Default::default(), tool_strokes: Default::default(), deepl_key: String::new(),
+                   translate_lang: "EN-US".into() }
     }
 }
 

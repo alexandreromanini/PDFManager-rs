@@ -10,7 +10,7 @@ use slint::{ModelRc, VecModel};
 use super::{file_name, from_engine, App};
 use crate::assistant::{self, Conversation};
 use crate::engine::DocId;
-use crate::{convert, edit, ocr, ChatMessage};
+use crate::{convert, deepl, edit, ocr, translate, ChatMessage};
 
 fn save_as(title: &str, suggested: &Path, filter: (&str, &[&str])) -> Option<PathBuf> {
     crate::dialogs::save_file(title, filter, suggested)
@@ -187,6 +187,86 @@ impl App {
         });
     }
 
+    // ----- traduction --------------------------------------------------------------------
+
+    pub(super) fn translate_show(&mut self) {
+        if self.current_tab().is_none() {
+            return;
+        }
+        let ui = self.ui();
+        let names: Vec<slint::SharedString> = deepl::LANGUAGES.iter().map(|l| l.1.into()).collect();
+        ui.set_translate_languages(ModelRc::new(VecModel::from(names)));
+        let lang = deepl::LANGUAGES.iter().position(|l| l.0 == self.settings.translate_lang).unwrap_or(1);
+        ui.set_translate_lang(lang as i32);
+        ui.set_deepl_key(self.settings.deepl_key.clone().into());
+        ui.invoke_show_translate();
+    }
+
+    /// Copie traduite par DeepL, même mise en page (voir translate.rs), puis proposée à
+    /// l'ouverture. Échap arrête entre deux lots.
+    pub fn translate_run(&mut self, language: usize, pages: String, key: String, remember: bool) {
+        let Some((id, path, stem)) = self.doc_stem() else { return };
+        let count = self.tab().map_or(0, |t| t.sizes.len());
+        let pages = match edit::parse_pages(&pages, count) {
+            Ok(p) => p,
+            Err(e) => return self.error(&e),
+        };
+        let (code, name) = deepl::LANGUAGES[language.min(deepl::LANGUAGES.len() - 1)];
+        self.settings.translate_lang = code.into();
+        self.settings.deepl_key = if remember { key.trim().to_string() } else { String::new() };
+        self.settings.save();
+        let Some(target) = save_as("Enregistrer la traduction", &path.with_file_name(format!("{stem} - {name}.pdf")),
+                                   ("Documents PDF", &["pdf"])) else { return };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.job_cancel = Some(cancel.clone());
+        self.toast("Traduction…");
+        self.engine.run(move |docs| {
+            let data = docs.get(&id).ok_or("document fermé".to_string()).and_then(|pdf| pdf.plain_bytes());
+            std::thread::spawn(move || {
+                let result = data.and_then(|d| translate::translate_pdf(&d, &pages, |texts| {
+                    if std::env::var_os("PDFMANAGER_CAPTURE").is_some() {
+                        return Ok(texts.iter().map(|t| t.to_uppercase()).collect()); // tests hors ligne
+                    }
+                    deepl::translate(&key, texts, code, &cancel, |done, total| {
+                        from_engine(move |app| app.toast(&format!("Traduction : {done} passages sur {total}… (Échap pour arrêter)")));
+                    })
+                }));
+                let result = result.and_then(|(d, report)| {
+                    if report.translated == 0 {
+                        return Err(if report.skipped > 0 {
+                            "Rien n'a pu être traduit : le texte de ces pages est incliné, ou c'est un scan (le texte reconnu par \
+                             OCR est invisible et ne peut pas être remplacé).".to_string()
+                        } else {
+                            "Ces pages ne contiennent pas de texte à traduire.".to_string()
+                        });
+                    }
+                    convert::save(&target, &d).map(|_| report)
+                });
+                from_engine(move |app| {
+                    app.job_cancel = None;
+                    match result {
+                        Ok(r) => {
+                            let mut what = format!("Document traduit en {} ({} passage{})", name.to_lowercase(), r.translated,
+                                                   if r.translated > 1 { "s" } else { "" });
+                            if r.shrunk > 0 {
+                                what += &format!(" ; {} réduit{} pour tenir dans leur cadre", r.shrunk, if r.shrunk > 1 { "s" } else { "" });
+                            }
+                            if r.overflow > 0 {
+                                what += &format!(" ; {} dépasse{} de son cadre, à vérifier", r.overflow, if r.overflow > 1 { "nt" } else { "" });
+                            }
+                            if r.skipped > 0 {
+                                what += &format!(" ; {} laissé{} en langue d'origine (texte incliné ou scanné)", r.skipped,
+                                                 if r.skipped > 1 { "s" } else { "" });
+                            }
+                            app.offer_open(target, &what);
+                        }
+                        Err(e) => app.error(&e),
+                    }
+                });
+            });
+        });
+    }
+
     pub(super) fn pdfa(&mut self) {
         let Some(gs) = convert::find_ghostscript() else {
             return self.error(&format!("Ghostscript (gratuit) est nécessaire pour créer un PDF/A (polices intégrées, \
@@ -225,7 +305,7 @@ impl App {
         let lang = ocr::LANGUAGES[language.min(2)].0;
         let dpi = dpi.clamp(150, 600) as f32;
         let cancel = Arc::new(AtomicBool::new(false));
-        self.ocr_cancel = Some(cancel.clone());
+        self.job_cancel = Some(cancel.clone());
         let engine = self.engine.clone();
         self.engine.run(move |docs| {
             let Some(pdf) = docs.get(&id) else { return };
@@ -295,7 +375,7 @@ impl App {
                 }
                 match feeder.join().unwrap_or(Err("rendu interrompu".into())) {
                     // Document fermé entre-temps : on s'arrête sans rien signaler.
-                    Err(e) if e == CLOSED => return from_engine(|app| app.ocr_cancel = None),
+                    Err(e) if e == CLOSED => return from_engine(|app| app.job_cancel = None),
                     Err(e) => {
                         failure.get_or_insert(e);
                     }
@@ -303,14 +383,14 @@ impl App {
                 }
                 if let Some(e) = failure {
                     return from_engine(move |app| {
-                        app.ocr_cancel = None;
+                        app.job_cancel = None;
                         app.error(&format!("Reconnaissance impossible : {e}"));
                     });
                 }
                 results.sort_by_key(|r| r.0);
                 let stopped = cancel.load(Ordering::Relaxed);
                 from_engine(move |app| {
-                    app.ocr_cancel = None;
+                    app.job_cancel = None;
                     if n == 0 {
                         return app.toast("Ces pages contiennent déjà du texte (cochez « Aussi les pages qui contiennent déjà du texte » pour les traiter).");
                     }
@@ -329,12 +409,12 @@ impl App {
         });
     }
 
-    /// Échap pendant l'OCR : arrêt après la page en cours.
-    pub(super) fn ocr_stop(&mut self) -> bool {
-        match self.ocr_cancel.take() {
+    /// Échap pendant l'OCR ou la traduction : arrêt après la page ou le lot en cours.
+    pub(super) fn job_stop(&mut self) -> bool {
+        match self.job_cancel.take() {
             Some(c) => {
                 c.store(true, Ordering::Relaxed);
-                self.toast("Arrêt après la page en cours…");
+                self.toast("Arrêt en cours…");
                 true
             }
             None => false,

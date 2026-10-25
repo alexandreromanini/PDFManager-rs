@@ -124,6 +124,8 @@ pub fn run(args: &[String]) -> std::process::ExitCode {
                 metadata: true, javascript: true, attachments: true, thumbnails: true,
                 hidden_text: arg == "tout", links: arg == "tout", forms: arg == "tout" })),
             "ocr" => app::with_app(move |a| a.ocr_run(0, arg, false, 300)),
+            // translate:pages (traducteur factice hors ligne : majuscules, vers l'anglais)
+            "translate" => app::with_app(move |a| a.translate_run(1, arg, "cle-de-test:fx".into(), true)),
             "export-images" => app::with_app(move |a| a.export_images_run(false, 72, arg)),
             "compress" => app::with_app(move |a| a.compress_run(arg.parse().unwrap_or(0))),
             // digital:fichier.pfx,mot de passe

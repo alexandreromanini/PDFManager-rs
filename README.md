@@ -23,6 +23,7 @@ usages.
 | 7 | Signatures, comparaison | ✅ 0.7.0 |
 | Audit | Tests de bout en bout, 23 corrections (voir [AUDIT.md](AUDIT.md)) | ✅ 0.7.1 |
 | Parité | Toutes les fonctions de la version Python (voir [COMPARAISON.md](COMPARAISON.md)) | ✅ 0.8.0 |
+| Traduction | Traduire le document avec DeepL, même mise en page (aussi dans la version Python) | ✅ 0.9.0 |
 
 ## Fonctions (phase 1)
 
@@ -148,6 +149,13 @@ usages.
 - OCR en parallèle et résolution d'analyse réglable ; export Word avec tableaux ; réduction
   des photos ; PDF/A conforme (OutputIntent sRGB).
 - Signature manuscrite : fond transparent et mémorisation au choix.
+- **Traduire le document** (0.9.0) : copie traduite par DeepL (clé gratuite : 500 000
+  caractères par mois), même mise en page. Chaque paragraphe ou cellule est remplacé à sa
+  place, même police (installée) ou la plus proche, même couleur ; plus long, il est réduit
+  jusqu'à 70 %, puis déborde vers le bas (signalé). Nombres et dates ne partent pas.
+  28 langues à alphabet latin, grec ou cyrillique (pas de chinois, japonais, coréen, arabe ni
+  hébreu). Limites : texte incliné ou scanné (couche OCR) laissé tel quel, paragraphes
+  justifiés réécrits alignés à gauche. Échap arrête.
 - Recherche d'outil dans le catalogue ; menu : « Annuler « … » », outils externes détectés,
   dossier des journaux ; fichier endommagé signalé ; « Effacer la liste » des récents.
 

@@ -68,6 +68,7 @@ de document avec leur raison. Date : 2026-10-20.
 | Nettoyer : texte invisible, liens, valeurs des champs | ❌ | ✅ |
 | OCR : langue, pages, pages avec texte | ✅ | ✅ |
 | OCR : résolution d'analyse, traitement parallèle | ❌ | ✅ |
+| Traduire le document (DeepL, même mise en page), ajouté aux deux versions | ❌ | ✅ 0.9.0 |
 | Réduire la taille : 3 niveaux, gain affiché, rien si aucun gain | ⚠️ photos jamais réduites | ✅ |
 | Réduire : « Optimiser pour le web (linéariser) » | ❌ | ❌ voir plus bas |
 | Protéger, retirer la protection, propriétés | ✅ | ✅ |

@@ -252,7 +252,7 @@ pub struct App {
     pending_choice: Option<crate::forms::FieldInfo>,
     props: Vec<String>,
     pending_installer: Option<PathBuf>,
-    ocr_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    job_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
     chats: HashMap<DocId, convert_ui::Chat>,
     ai: Option<crate::assistant::Engine>,
     ai_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
@@ -1200,7 +1200,7 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
         pending_choice: None,
         props: vec![],
         pending_installer: None,
-        ocr_cancel: None,
+        job_cancel: None,
         chats: HashMap::new(),
         ai: None,
         ai_cancel: None,
@@ -1286,6 +1286,9 @@ pub fn install(ui: &AppWindow, files: Vec<PathBuf>) {
     ui.on_pages_error(|spec| APP.with(|c| {
         let count = c.try_borrow().ok().and_then(|a| a.as_ref().and_then(|a| a.current_tab().map(|t| t.sizes.len()))).unwrap_or(0);
         crate::edit::parse_ranges(&spec, count).err().unwrap_or_default().into()
+    }));
+    ui.on_translate_run(|lang, pages, key, remember| after_popup(move |app| {
+        app.translate_run(lang.max(0) as usize, pages.to_string(), key.to_string(), remember)
     }));
     ui.on_ocr_run(|lang, pages, all, dpi| after_popup(move |app| app.ocr_run(lang.max(0) as usize, pages.to_string(), all, dpi)));
     ui.on_ai_ask(|q| with_app(move |app| app.ai_ask(q.to_string())));

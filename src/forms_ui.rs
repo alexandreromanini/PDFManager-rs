@@ -509,16 +509,26 @@ impl App {
     }
 }
 
-const SECTIONS: [&str; 5] = ["Organiser", "Modifier", "Convertir et optimiser", "Signer et protéger", "Assistant IA"];
+const SECTIONS: [&str; 6] = ["Organiser", "Modifier", "Commenter", "Convertir et optimiser", "Signer et protéger", "Assistant IA"];
 
 /// Catalogue d'outils, dans l'ordre de l'interface : (section, libellé, mots-clés).
-const CATALOG: [(&str, &str, &str); 16] = [
+const CATALOG: [(&str, &str, &str); 26] = [
     ("Organiser", "Organiser les pages", "pivoter supprimer extraire inserer recadrer deplacer page vierge"),
     ("Organiser", "Fusionner des PDF", "combiner assembler rassembler"),
     ("Organiser", "Scinder un PDF", "separer decouper diviser"),
     ("Modifier", "Ajouter du texte et des images", "modifier corriger texte image lien caviarder filigrane en-tete pied numerotation nettoyer"),
-    ("Modifier", "Commenter", "annotation surligner souligner barrer note dessin tampon forme"),
     ("Modifier", "Formulaires", "champ case liste remplir"),
+    ("Commenter", "Surligner", "commentaire annotation stabilo marquer texte"),
+    ("Commenter", "Souligner", "commentaire annotation texte"),
+    ("Commenter", "Barrer", "commentaire annotation rayer texte"),
+    ("Commenter", "Note", "commentaire annotation post-it remarque"),
+    ("Commenter", "Texte libre", "commentaire annotation zone de texte ecrire"),
+    ("Commenter", "Rectangle", "commentaire annotation forme cadre carre"),
+    ("Commenter", "Ellipse", "commentaire annotation forme cercle rond"),
+    ("Commenter", "Ligne", "commentaire annotation forme trait"),
+    ("Commenter", "Flèche", "commentaire annotation forme"),
+    ("Commenter", "Dessin à main levée", "commentaire annotation crayon stylo"),
+    ("Commenter", "Tampon", "commentaire annotation approuve confidentiel brouillon"),
     ("Convertir et optimiser", "Reconnaître le texte (OCR)", "scan numerise ocr"),
     ("Convertir et optimiser", "Réduire la taille", "compresser alleger poids"),
     ("Convertir et optimiser", "Convertir (Word, images, texte)", "exporter word docx png jpeg txt creer office"),
@@ -557,6 +567,8 @@ mod tests {
         assert_eq!(find("proteger"), ["Protéger par mot de passe"]);
         assert_eq!(find("COMPRESSER"), ["Réduire la taille"]);
         assert_eq!(find("mot de passe").len(), 2);
+        assert_eq!(find("surligner"), ["Surligner"]);
+        assert_eq!(find("commentaire").len(), 11);
         assert!(find("zzz").is_empty());
     }
 }

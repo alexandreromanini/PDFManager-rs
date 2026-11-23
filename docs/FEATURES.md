@@ -37,7 +37,8 @@ est en français). Retour à l'[accueil du projet](../README.fr.md) ; historique
 
 ## Fonctions (phase 3)
 
-- Panneau « Commenter » : surligner, souligner, barrer (sur le texte sélectionné), note,
+- Section « Commenter » du catalogue (chaque outil ouvre le panneau Commenter, déjà choisi) :
+  surligner, souligner, barrer (sur le texte sélectionné), note,
   texte libre, rectangle, ellipse, ligne, flèche, dessin à main levée, tampon ; 6 couleurs,
   épaisseur des traits, nom de l'auteur.
 - Avec l'outil Sélection : cliquer un commentaire le sélectionne, le glisser le déplace,

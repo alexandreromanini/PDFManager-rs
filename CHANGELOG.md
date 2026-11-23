@@ -6,6 +6,9 @@ Le détail de chaque fonction est dans [docs/FEATURES.md](docs/FEATURES.md).
 ## [Non publié]
 
 ### Modifié
+- Catalogue d'outils : nouvelle section **Commenter** qui liste directement Surligner,
+  Souligner, Barrer, Note, Texte libre, les formes, le dessin et le tampon ; un clic ouvre
+  le panneau Commenter avec l'outil déjà choisi.
 - Fenêtre « À propos » : licence libre et adresse du projet (au lieu de « usage personnel »).
 - Présentation du projet : README en anglais et en français, captures d'écran, guide de
   contribution, politique de sécurité, modèles de signalement.

@@ -3,7 +3,7 @@
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions [SemVer](https://semver.org/lang/fr/).
 Le détail de chaque fonction est dans [docs/FEATURES.md](docs/FEATURES.md).
 
-## [Non publié]
+## [0.9.1] - 2026-11-23
 
 ### Modifié
 - Catalogue d'outils : nouvelle section **Commenter** qui liste directement Surligner,
